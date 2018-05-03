@@ -65,6 +65,38 @@ namespace Demo1
         {
             print("this is contract hello api with argument " + arg);
         }
+
+        public string TestMap(string arg)
+        {
+            var map1 = UvmMap<string>.Create();
+            map1.Set("name", "C#");
+            map1.Set("country", "China");
+            Console.WriteLine("map1's name is " + map1.Get("name"));
+            Console.WriteLine("map1's country is " + map1.Get("country"));
+
+            // 遍历map的demo
+            var map1PairsIter = map1.Pairs();
+            pprint(map1PairsIter);
+            var keyValuePair = map1PairsIter(map1, null);
+            pprint(keyValuePair);
+            print(keyValuePair.Key);
+            print(keyValuePair.Value);
+            while (keyValuePair.Key != null)
+            {
+                // FIXME: 在这里加入Debug(); 会报错
+                Console.WriteLine("key: " + tostring(keyValuePair.Key));
+                Console.WriteLine("value: " + tostring(keyValuePair.Value));
+
+                // Debug();
+                if (keyValuePair.Key == "name")
+                {
+                    print("found key==name pair");
+                }
+                keyValuePair = map1PairsIter(map1, keyValuePair.Key);
+            }
+            return "testmap over";
+
+        }
     }
 
     public class ExampleLibClass
@@ -396,7 +428,7 @@ namespace Demo1
             TestArithmeticOperators();
             TestPlainObject();
             TestArray();
-            TestMap();
+            //TestMap();
             TestEmitEvent();
             TestModules();
 

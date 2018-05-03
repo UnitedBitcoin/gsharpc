@@ -56,13 +56,16 @@ namespace gsharpc
       for (int i = 0; i < toCompileFilePaths.Count; ++i)
       {
         var dllFilepath = toCompileFilePaths[i];
-        var uvmsOutputFilePath = ILToUvmTranslator.TranslateDotNetDllToUvm(dllFilepath);
-        if(!onlyCompileToUvms)
+        var uvmsOutputFilePath = ILToUvmTranslator.TranslateDotNetDllToUvm(dllFilepath);  // for test
+        //var uvmsOutputFilePath = "F:\\gitwork\\gsharpc\\DemoContract1\\bin\\Debug\\DemoContract1.uvms";   // for test
+        if (!onlyCompileToUvms)
         {
           // 调用 uvm_ass来生成.out字节码文件，并删除.uvms文件
           var uvmsAssProcess = new Process();
           Console.WriteLine("cur dir is " + Environment.CurrentDirectory);
           var uvmAssFilePath = Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, "uvm_ass"));
+
+          uvmAssFilePath = "F:\\gitwork\\gsharpc\\DemoContract1\\bin\\Debug\\uvm_ass"; //test
           uvmsAssProcess.StartInfo.FileName = uvmAssFilePath;
           if(isWindows)
           {
@@ -74,7 +77,7 @@ namespace gsharpc
           uvmsAssProcess.Start();
           uvmsAssProcess.WaitForExit();
           // 执行完成删除.uvms文件
-          File.Delete(uvmsOutputFilePath);
+          //File.Delete(uvmsOutputFilePath);
           Console.WriteLine("compile dllFilepath to uvm bytecode done");
 
           if (generateGpcFiles)

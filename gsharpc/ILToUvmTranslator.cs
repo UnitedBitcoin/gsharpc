@@ -67,7 +67,7 @@ namespace gsharpc
             return JsonConvert.SerializeObject(info);
         }
 
-        public void TranslateModule(ModuleDefinition module, StringBuilder ilContentBuilder, StringBuilder luaAsmBuilder)
+        public void TranslateModule(ModuleDefinition module, StringBuilder ilContentBuilder, StringBuilder uvmAsmBuilder)
         {
             GeneratedInstructions.Clear();
             EventNames.Clear();
@@ -143,20 +143,22 @@ namespace gsharpc
                 {
                     continue;
                 }
-                var proto = TranslateILType(typeDefinition, ilContentBuilder, luaAsmBuilder, true, null);
-                luaAsmBuilder.Append(proto.ToUvmAss(true));
+                var proto = TranslateILType(typeDefinition, ilContentBuilder, uvmAsmBuilder, true, null);
+                uvmAsmBuilder.Append(proto.ToUvmAss(true));
                 mainProto = proto;
             }
             // TODO: 考虑把所有proto放到一个级别，放在main下面，统一通过upval或者getuptab访问
             if (this.ContractType != null)
             {
-                var proto = TranslateILType(this.ContractType, ilContentBuilder, luaAsmBuilder, false, mainProto.FindMainProto());
-                luaAsmBuilder.Append(proto.ToUvmAss(false));
+                var proto = TranslateILType(this.ContractType, ilContentBuilder, uvmAsmBuilder, false, mainProto.FindMainProto());
+                uvmAsmBuilder.Append(proto.ToUvmAss(false));
             }
+
+          
         }
 
         private UvmProto TranslateILType(TypeDefinition typeDefinition, StringBuilder ilContentBuilder,
-          StringBuilder luaAsmBuilder, bool isMainType, UvmProto parentProto)
+          StringBuilder uvmAsmBuilder, bool isMainType, UvmProto parentProto)
         {
             var proto = new UvmProto(TranslatorUtils.MakeProtoNameOfTypeConstructor(typeDefinition));
             proto.Parent = parentProto;
@@ -168,22 +170,25 @@ namespace gsharpc
             var tableSlot = 0;
             proto.AddInstructionLine(UvmOpCodeEnums.OP_NEWTABLE, "newtable %" + tableSlot + " 0 0", null);
             var tmp1Slot = typeDefinition.Methods.Count + 1;
+
             foreach (var m in typeDefinition.Methods)
             {
-                var methodProto = TranslateILMethod(m, ilContentBuilder, luaAsmBuilder, proto);
+                var methodProto = TranslateILMethod(m, ilContentBuilder, uvmAsmBuilder, proto);
                 if (methodProto == null)
                 {
                     continue;
                 }
-                // 把各成员函数加入slots
+                // 把各成员函数加入slots    
                 proto.InternConstantValue(methodProto.Name);
                 var slotIndex = proto.SubProtos.Count + 1;
                 proto.AddInstructionLine(UvmOpCodeEnums.OP_CLOSURE, "closure %" + slotIndex + " " + methodProto.Name, null);
+
+
                 proto.InternConstantValue(m.Name);
                 proto.AddInstructionLine(UvmOpCodeEnums.OP_LOADK, "loadk %" + tmp1Slot + " const \"" + m.Name + "\"", null);
                 proto.AddInstructionLine(UvmOpCodeEnums.OP_SETTABLE,
                   "settable %" + tableSlot + " %" + tmp1Slot + " %" + slotIndex, null);
-                proto.Locvars.Add(new UvmLocVar() { Name = methodProto.Name, SlotIndex = slotIndex });
+                proto.Locvars.Add(new UvmLocVar() { Name = methodProto.Name, SlotIndex = slotIndex }); 
                 proto.SubProtos.Add(methodProto);
             }
 
@@ -254,6 +259,7 @@ namespace gsharpc
                 {
                     throw new Exception("wrong to jmp instruction index");
                 }
+
                 for (var j = idx1 + 1; j < idx2; j++)
                 {
                     var oldNotAffectMode = proto.InNotAffectMode;
@@ -267,55 +273,80 @@ namespace gsharpc
                     });
                     toJmpUvmInstsCount += notEmptyUvmInstsCount;
                 }
+
+                //modify by zq
+                //int groupIndex = GetGroupIndex(proto, idx1 + 1);
+                //int targetGroupIndex = GetGroupIndex(proto, idx2);
+                //if (groupIndex < 0 || targetGroupIndex < 0)
+                //{
+                //    throw new Exception("程序出错 MakeJmpToInstruction");
+                //}
+                //if (proto.ILInsGroups.ElementAt(targetGroupIndex).ILIndexInMethod != idx2)
+                //{
+                //    //fixme zq  跳转目的地位于group内，需要拆掉group !!!
+                //    throw new Exception("程序出错 跳转目的地不能位于group内 MakeJmpToInstruction ");
+                //}
+
+                //ILInstructionGroup ilgroup = null;
+                //while (groupIndex < targetGroupIndex)
+                //{
+                //    var oldNotAffectMode = proto.InNotAffectMode;
+                //    proto.InNotAffectMode = true;
+                //    ilgroup = proto.ILInsGroups.ElementAt(groupIndex);
+                //    var uvmInsts = TranslateILInstructionsGroup(proto, ilgroup, commentPrefix, true);
+
+                //    proto.InNotAffectMode = oldNotAffectMode;
+                //    var notEmptyUvmInstsCount = uvmInsts.Count((UvmInstruction uvmInst) =>
+                //    {
+                //        return !(uvmInst is UvmEmptyInstruction);
+                //    });
+                //    toJmpUvmInstsCount += notEmptyUvmInstsCount;
+                //    groupIndex++;
+                //}
+
+
                 jmpLabel = proto.InternNeedLocationLabel(toJmpUvmInstsCount + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), jmpLabel);
                 result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_JMP, "jmp 1 $" + jmpLabel + commentPrefix + " " + opName,
                     i));
             }
         }
 
-        private void AddEvalStackSizeInstructions(UvmProto proto, Instruction i, IList<UvmInstruction> result, string commentPrefix)
-        {
-            proto.InternConstantValue(1);
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_ADD, "add %" + proto.evalStackSizeIndex + " %" + proto.evalStackSizeIndex + " const 1" + commentPrefix, i));
-        }
 
-        private void SubEvalStackSizeInstructions(UvmProto proto, Instruction i, IList<UvmInstruction> result, string commentPrefix)
-        {
-            proto.InternConstantValue(1);
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_SUB, "sub %" + proto.evalStackSizeIndex + " %" + proto.evalStackSizeIndex + " const 1" + commentPrefix, i));
-        }
-
-        private void PopFromEvalStackToSlot(UvmProto proto, int slotIndex, int nilSlotIndex, Instruction i, IList<UvmInstruction> result,
+        private void PopFromEvalStackTopSlot(UvmProto proto, int slotIndex, Instruction i, IList<UvmInstruction> result,
           string commentPrefix)
         {
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETTABLE,
-             "gettable %" + slotIndex + " %" + proto.evalStackIndex + " %" + proto.evalStackSizeIndex + commentPrefix, i));
-            // eval stack弹出1个值
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_SETTABLE,
-                "settable %" + proto.evalStackIndex + " %" + proto.evalStackSizeIndex + " %" + nilSlotIndex + commentPrefix, i));
-            SubEvalStackSizeInstructions(proto, i, result, commentPrefix);
+            UvmInstruction inst = proto.MakeInstructionLine(UvmOpCodeEnums.OP_POP, "pop %" + slotIndex + commentPrefix, i);
+            result.Add(inst);
         }
 
-        private void LoadNilInstruction(UvmProto proto, int slotIndex, Instruction i, IList<UvmInstruction> result,
+        private void PushIntoEvalStackTopSlot(UvmProto proto, int slotIndex, Instruction i, IList<UvmInstruction> result,
           string commentPrefix)
         {
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADNIL,
-               "loadnil %" + slotIndex + " 0" + commentPrefix, i));
+           UvmInstruction inst = proto.MakeInstructionLine(UvmOpCodeEnums.OP_PUSH, "push %" + slotIndex + commentPrefix, i);
+           result.Add(inst);
+        }
+
+
+        private void PushStrIntoEvalStackTopSlot(UvmProto proto, string str, Instruction i, IList<UvmInstruction> result,
+          string commentPrefix)
+        {
+            UvmInstruction inst = proto.MakeInstructionLine(UvmOpCodeEnums.OP_PUSH, "push " + " const  \"" + str + "\"" + commentPrefix + " ldstr", i);
+            result.Add(inst);
+
         }
 
         private void MakeArithmeticInstructions(UvmProto proto, string uvmOpName, Instruction i, IList<UvmInstruction> result,
           string commentPrefix, bool convertResultTypeBoolIfInt)
         {
-            result.Add(proto.MakeEmptyInstruction(i.ToString()));
+            //result.Add(proto.MakeEmptyInstruction(i.ToString()));
             proto.InternConstantValue(1);
 
             var arg1SlotIndex = proto.tmp3StackTopSlotIndex + 1; // top-1
             var arg2SlotIndex = proto.tmp3StackTopSlotIndex + 2; // top                 
 
-            LoadNilInstruction(proto, proto.tmp3StackTopSlotIndex, i, result, commentPrefix);
-
-            PopFromEvalStackToSlot(proto, arg2SlotIndex, proto.tmp3StackTopSlotIndex, i, result, commentPrefix);
-            PopFromEvalStackToSlot(proto, arg1SlotIndex, proto.tmp3StackTopSlotIndex, i, result, commentPrefix);
+            /*modify by zq */ // LoadNilInstruction(proto, proto.tmp3StackTopSlotIndex, i, result, commentPrefix);
+            PopFromEvalStackTopSlot(proto, arg2SlotIndex, i, result, commentPrefix);
+            PopFromEvalStackTopSlot(proto, arg1SlotIndex, i, result, commentPrefix);
 
             // 执行算术操作符，结果存入tmp2
             result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_ADD, uvmOpName + " %" + proto.tmp2StackTopSlotIndex + " %" + arg1SlotIndex + " %" + arg2SlotIndex + commentPrefix, i));
@@ -345,36 +376,25 @@ namespace gsharpc
                 result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_MOVE, "move %" + proto.tmp2StackTopSlotIndex + " %" + proto.tmp1StackTopSlotIndex + commentPrefix, i));
             }
             // 把add结果存入eval stack
-            AddEvalStackSizeInstructions(proto, i, result, commentPrefix);
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_SETTABLE,
-              "settable %" + proto.evalStackIndex + " %" + proto.evalStackSizeIndex + " %" + proto.tmp2StackTopSlotIndex + commentPrefix + " add", i));
+            PushIntoEvalStackTopSlot(proto, proto.tmp2StackTopSlotIndex, i, result, commentPrefix + " add");
         }
 
         private void MakeCompareInstructions(UvmProto proto, string compareType, Instruction i, IList<UvmInstruction> result,
           string commentPrefix)
         {
             // 从eval stack弹出两个值(top和top-1)，比较大小，比较结果存入eval stack
-            result.Add(proto.MakeEmptyInstruction(i.ToString()));
+            //result.Add(proto.MakeEmptyInstruction(i.ToString()));
 
             // 消耗eval stack的顶部2个值, 然后比较，比较结果存入eval stack
             // 获取eval stack顶部的值
             proto.InternConstantValue(1);
             var arg1SlotIndex = proto.tmp3StackTopSlotIndex + 1; // top
             var arg2SlotIndex = proto.tmp3StackTopSlotIndex + 2; // top-1
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETTABLE,
-                "gettable %" + arg1SlotIndex + " %" + proto.evalStackIndex + " %" + proto.evalStackSizeIndex + commentPrefix, i));
-            // eval stack弹出1个值
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADNIL,
-                "loadnil %" + proto.tmp3StackTopSlotIndex + " 0" + commentPrefix, i));
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_SETTABLE,
-                "settable %" + proto.evalStackIndex + " %" + proto.evalStackSizeIndex + " %" + proto.tmp3StackTopSlotIndex + commentPrefix, i));
-            SubEvalStackSizeInstructions(proto, i, result, commentPrefix);
+            
+            PopFromEvalStackTopSlot(proto, arg1SlotIndex, i, result, commentPrefix);
 
             // 再次获取eval stack栈顶的值
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETTABLE, "gettable %" + arg2SlotIndex + " %" + proto.evalStackIndex + " %" + proto.evalStackSizeIndex + commentPrefix, i));
-            // eval stack弹出一个值
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_SETTABLE, "settable %" + proto.evalStackIndex + " %" + proto.evalStackSizeIndex + " %" + proto.tmp3StackTopSlotIndex + commentPrefix, i));
-            SubEvalStackSizeInstructions(proto, i, result, commentPrefix);
+            PopFromEvalStackTopSlot(proto, arg2SlotIndex, i, result, commentPrefix);
 
             // 比较arg1和arg2
             // uvm的lt指令: if ((RK(B) <  RK(C)) ~= A) then pc++
@@ -420,7 +440,7 @@ namespace gsharpc
                 i));
 
             var jmpLabel2 = proto.Name + "_2_cmp_" + i.Offset;
-            var offsetOfInst2 = 5; // 如果比较成功，跳转到把1压eval-stack栈的指令
+            var offsetOfInst2 = 5; // 如果比较成功，跳转到把1压eval-stack栈的指令  
             jmpLabel2 = proto.InternNeedLocationLabel(offsetOfInst2 + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), jmpLabel2);
             result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_JMP, "jmp 1 $" + jmpLabel2 + commentPrefix,
                 i));
@@ -432,30 +452,24 @@ namespace gsharpc
             // 把结果0存入eval stack
             result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADK,
             "loadk %" + proto.tmp2StackTopSlotIndex + " const 0" + commentPrefix, i));
-            AddEvalStackSizeInstructions(proto, i, result, commentPrefix);
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_SETTABLE, "settable %" + proto.evalStackIndex + " %" + proto.evalStackSizeIndex + " %" + proto.tmp2StackTopSlotIndex + commentPrefix, i));
-
+            PushIntoEvalStackTopSlot(proto, proto.tmp2StackTopSlotIndex, i, result, commentPrefix + " add");
 
             // jmp到压栈第1个分支后面
             var jmpLabel3 = proto.Name + "_3_cmp_" + i.Offset;
-            var offsetOfInst3 = 4;
+            var offsetOfInst3 = 3; // modify
             jmpLabel3 = proto.InternNeedLocationLabel(offsetOfInst3 + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), jmpLabel3);
             result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_JMP, "jmp 1 $" + jmpLabel3 + commentPrefix,
                 i));
 
             // 把结果1存入eval stack
-            AddEvalStackSizeInstructions(proto, i, result, commentPrefix);
             result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADK,
             "loadk %" + proto.tmp3StackTopSlotIndex + " const 1" + commentPrefix, i));
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_SETTABLE,
-              "settable %" + proto.evalStackIndex + " %" + proto.evalStackSizeIndex + " %" + proto.tmp3StackTopSlotIndex + commentPrefix + " cgt", i));
+            PushIntoEvalStackTopSlot(proto, proto.tmp3StackTopSlotIndex, i, result, commentPrefix + " cgt");
 
-
-            result.Add(proto.MakeEmptyInstruction(""));
         }
 
         /**
-         * 读取并弹出eval stack top-1(table)和top(value)值，top值弹出, 执行table写属性操作，然后table压栈回到eval-stack
+         * 读取并弹出eval stack top-1(table)和top(value)值，top值弹出, 执行table写属性操作，然后table压栈回到eval-stack ???? 弹出2个不需要压回
          */
         private void MakeSetTablePropInstructions(UvmProto proto, string propName, Instruction i, IList<UvmInstruction> result,
           string commentPrefix, bool needConvtToBool)
@@ -464,9 +478,8 @@ namespace gsharpc
             var tableSlot = proto.tmp2StackTopSlotIndex + 1;
             var valueSlot = proto.tmp2StackTopSlotIndex + 2;
 
-            // 加载value                                                                                
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETTABLE,
-              "gettable %" + valueSlot + " %" + proto.evalStackIndex + " %" + proto.evalStackSizeIndex + commentPrefix, i));
+            // 加载value     
+            PopFromEvalStackTopSlot(proto, valueSlot, i, result, commentPrefix);
 
             // 对于布尔类型，因为.net中布尔类型参数加载的时候用的ldc.i，加载的是整数，所以这里要进行类型转换成bool类型，使用 not not a来转换
             if (needConvtToBool)
@@ -474,24 +487,21 @@ namespace gsharpc
                 result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + valueSlot + " %" + valueSlot + commentPrefix, i));
                 result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + valueSlot + " %" + valueSlot + commentPrefix, i));
             }
-            // 这里暂时用tmpMax存放nil
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADNIL, "loadnil %" + proto.tmpMaxStackTopSlotIndex + " 0" + commentPrefix, i));
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_SETTABLE,
-                "settable %" + proto.evalStackIndex + " %" + proto.evalStackSizeIndex + " %" + proto.tmpMaxStackTopSlotIndex + commentPrefix, i));
-            SubEvalStackSizeInstructions(proto, i, result, commentPrefix);
+      
 
-            // 加载table                                                                                  
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETTABLE, "gettable %" + tableSlot + " %" + proto.evalStackIndex + " %" + proto.evalStackSizeIndex + commentPrefix, i));
+            // 加载table    
+            PopFromEvalStackTopSlot(proto, tableSlot, i, result, commentPrefix);
 
             // settable
             result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADK,
               "loadk %" + proto.tmp2StackTopSlotIndex + " const \"" + propName + "\"" + commentPrefix, i));
             result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_SETTABLE,
               "settable %" + tableSlot + " % " + proto.tmp2StackTopSlotIndex + " %" + valueSlot + commentPrefix, i));
+
         }
 
         /**
-         * 读取eval stack top(table)值，执行table读属性操作,读取结果放入eval stack
+         * 读取eval stack top(table)值，执行table读属性操作,读取结果放入eval stack  pop 1 push 1
          */
         public void MakeGetTablePropInstructions(UvmProto proto, string propName, Instruction i, IList<UvmInstruction> result,
           string commentPrefix, bool needConvtToBool)
@@ -500,16 +510,8 @@ namespace gsharpc
             var tableSlot = proto.tmp2StackTopSlotIndex + 1;
             var valueSlot = proto.tmp2StackTopSlotIndex + 2;
 
-            // 加载table                                                                                    
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETTABLE,
-              "gettable %" + tableSlot + " %" + proto.evalStackIndex + " %" + proto.evalStackSizeIndex + commentPrefix, i));
-
-            // 这里暂时用tmpMax存放nil
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADNIL,
-              "loadnil %" + proto.tmpMaxStackTopSlotIndex + " 0" + commentPrefix, i));
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_SETTABLE,
-                "settable %" + proto.evalStackIndex + " %" + proto.evalStackSizeIndex + " %" + proto.tmpMaxStackTopSlotIndex + commentPrefix, i));
-            SubEvalStackSizeInstructions(proto, i, result, commentPrefix);
+            // 加载table  
+            PopFromEvalStackTopSlot(proto, tableSlot, i, result, commentPrefix);
 
             // gettable
             result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADK,
@@ -525,29 +527,20 @@ namespace gsharpc
             }
             proto.InternConstantValue(1);
             // value放回eval stack                                                                      
-            AddEvalStackSizeInstructions(proto, i, result, commentPrefix);
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_SETTABLE,
-              "settable %" + proto.evalStackIndex + " %" + proto.evalStackSizeIndex + " %" + valueSlot + commentPrefix, i));
-
+            PushIntoEvalStackTopSlot(proto, valueSlot, i, result, commentPrefix );
         }
 
         /**
-         * 单元操作符转换成指令
+         * 单元操作符转换成指令  pop 1  push 1
          */
         public void MakeSingleArithmeticInstructions(UvmProto proto, string uvmOpName, Instruction i, IList<UvmInstruction> result,
           string commentPrefix, bool convertResultTypeBoolIfInt)
         {
-            result.Add(proto.MakeEmptyInstruction(i.ToString()));
+            //result.Add(proto.MakeEmptyInstruction(i.ToString()));
             proto.InternConstantValue(1);
             var arg1SlotIndex = proto.tmp3StackTopSlotIndex + 1; // top
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETTABLE,
-                "gettable %" + arg1SlotIndex + " %" + proto.evalStackIndex + " %" + proto.evalStackSizeIndex + commentPrefix, i));
-            // eval stack弹出1个值
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADNIL,
-                "loadnil %" + proto.tmp3StackTopSlotIndex + " 0" + commentPrefix, i));
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_SETTABLE,
-                "settable %" + proto.evalStackIndex + " %" + proto.evalStackSizeIndex + " %" + proto.tmp3StackTopSlotIndex + commentPrefix, i));
-            SubEvalStackSizeInstructions(proto, i, result, commentPrefix);
+           
+            PopFromEvalStackTopSlot(proto, arg1SlotIndex, i, result, commentPrefix);
 
             // 执行算术操作符，结果存入tmp2
             result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, uvmOpName + " %" + proto.tmp2StackTopSlotIndex + " %" + arg1SlotIndex + commentPrefix, i));
@@ -579,26 +572,41 @@ namespace gsharpc
             }
 
             // 把add结果存入eval stack
-            AddEvalStackSizeInstructions(proto, i, result, commentPrefix);
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_SETTABLE,
-              "settable %" + proto.evalStackIndex + " %" + proto.evalStackSizeIndex + " %" + proto.tmp2StackTopSlotIndex + commentPrefix + " add", i));
-
+            PushIntoEvalStackTopSlot(proto, proto.tmp2StackTopSlotIndex, i, result, commentPrefix+" add");
         }
 
         private void MakeGetTopOfEvalStackInst(UvmProto proto, Instruction i, IList<UvmInstruction> result,
           int targetSlot, string commentPrefix)
         {
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETTABLE,
-                     "gettable %" + targetSlot + " %" + proto.evalStackIndex +
-                     " %" + proto.evalStackSizeIndex + commentPrefix, i));
+            //UvmInstruction inst = proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETTABLE, "gettable %" + targetSlot + " %" + proto.evalStackIndex +
+            //         " %" + proto.evalStackSizeIndex + commentPrefix, i);
+            //inst.EvalOp = EvalStackOp.GetEvalStackTop;
+            //result.Add(inst);
+
+            UvmInstruction inst = proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETTOP, "gettop %" + targetSlot + commentPrefix, i);
+            //inst.EvalOp = EvalStackOp.GetEvalStackTop;
+
+            result.Add(inst);
         }
 
-        private void MakeSetTopOfEvalStackInst(UvmProto proto, Instruction i, IList<UvmInstruction> result,
-          int valueSlot, string commentPrefix)
-        {
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_SETTABLE,
-                     "settable %" + proto.evalStackIndex + " %" + proto.evalStackSizeIndex + " %" + valueSlot + commentPrefix, i));
-        }
+        //private void MakeSetTopOfEvalStackInst(UvmProto proto, Instruction i, IList<UvmInstruction> result,
+        //  int valueSlot, string commentPrefix)
+        //{
+        //    UvmInstruction inst = proto.MakeInstructionLine(UvmOpCodeEnums.OP_SETTABLE,
+        //             "settable %" + proto.evalStackIndex + " %" + proto.evalStackSizeIndex + " %" + valueSlot + commentPrefix, i);
+        //    inst.EvalOp = EvalStackOp.SetEvalStackTop;
+        //    result.Add(inst);
+        //}
+
+        //private void MakeSetTopOfEvalStackStrInst(UvmProto proto, Instruction i, IList<UvmInstruction> result,
+        //  string strValue, string commentPrefix)
+        //{
+        //    // 设置string                          
+        //    UvmInstruction inst = proto.MakeInstructionLine(UvmOpCodeEnums.OP_SETTABLE,
+        //      "settable %" + proto.evalStackIndex + " %" + proto.evalStackSizeIndex + " const \"" + strValue + "\"" + commentPrefix + " ldstr", i);
+        //    inst.EvalOp = EvalStackOp.SetEvalStackTop;
+        //    result.Add(inst);
+        //}
 
         private void MakeLoadNilInst(UvmProto proto, Instruction i, IList<UvmInstruction> result,
           int targetSlot, string commentPrefix)
@@ -651,11 +659,7 @@ namespace gsharpc
                             proto.maxCallStackSize = loc;
                         }
                         // 获取eval stack的栈顶值
-                        MakeGetTopOfEvalStackInst(proto, i, result, proto.callStackStartIndex + loc, commentPrefix);
-                        // 移除eval stack的栈顶（设为nil)
-                        MakeLoadNilInst(proto, i, result, proto.tmp3StackTopSlotIndex, commentPrefix);
-                        MakeSetTopOfEvalStackInst(proto, i, result, proto.tmp3StackTopSlotIndex, commentPrefix + " stloc " + loc + " " + ILVariableNameFromDefinition(varInfo));
-                        SubEvalStackSizeInstructions(proto, i, result, commentPrefix);
+                        PopFromEvalStackTopSlot(proto, proto.callStackStartIndex+loc, i, result, commentPrefix);
                     }
                     break;
                 case Code.Starg:
@@ -671,12 +675,7 @@ namespace gsharpc
                             argSlot++;
                         }
                         // 获取eval stack的栈顶值
-                        MakeGetTopOfEvalStackInst(proto, i, result, argSlot, commentPrefix);
-                        // 移除eval stack的栈顶（设为nil)
-                        MakeLoadNilInst(proto, i, result, proto.tmp3StackTopSlotIndex, commentPrefix);
-                        MakeSetTopOfEvalStackInst(proto, i, result, proto.tmp3StackTopSlotIndex,
-                          commentPrefix + " starg " + argLoc + " " + ILParamterNameFromDefinition(argInfo));
-                        SubEvalStackSizeInstructions(proto, i, result, commentPrefix);
+                        PopFromEvalStackTopSlot(proto, argSlot, i, result, commentPrefix);
                     }
                     break;
                 case Code.Stfld:
@@ -727,12 +726,10 @@ namespace gsharpc
                         {
                             argLoc++;
                         }
-                        result.Add(proto.MakeEmptyInstruction("")); ;
-
-                        AddEvalStackSizeInstructions(proto, i, result, commentPrefix);
+                        //result.Add(proto.MakeEmptyInstruction("")); ;
                         var slotIndex = argLoc;
                         // 复制数据到eval stack
-                        MakeSetTopOfEvalStackInst(proto, i, result, slotIndex, commentPrefix + " ldarg " + argLoc + " " + ILParamterNameFromDefinition(argInfo));
+                        PushIntoEvalStackTopSlot(proto, slotIndex, i, result, commentPrefix + " ldarg " + argLoc + " " + ILParamterNameFromDefinition(argInfo));
                     }
                     break;
                 case Code.Ldloc:
@@ -763,9 +760,9 @@ namespace gsharpc
                             }
                         }
                         // 从当前函数栈的call stack(slots区域)把某个数据复制到eval stack
-                        AddEvalStackSizeInstructions(proto, i, result, commentPrefix); var slotIndex = proto.callStackStartIndex + loc;
+                        var slotIndex = proto.callStackStartIndex + loc;
                         // 复制数据到eval stack
-                        MakeSetTopOfEvalStackInst(proto, i, result, slotIndex, commentPrefix + " ldloc " + loc + " " + ILVariableNameFromDefinition(varInfo));
+                        PushIntoEvalStackTopSlot(proto, slotIndex, i, result, commentPrefix + " ldloc " + loc + " " + ILVariableNameFromDefinition(varInfo));
                     }
                     break;
                 case Code.Ldc_I4:
@@ -792,21 +789,15 @@ namespace gsharpc
                           || opCode == Code.Ldc_I4_M1 || opCode == Code.Ldc_R4
                           || opCode == Code.Ldc_R8 || opCode == Code.Ldc_I8) ? i.Operand : (i.OpCode.Value - 22);
                         MakeLoadConstInst(proto, i, result, proto.tmp1StackTopSlotIndex, value, commentPrefix);
-                        AddEvalStackSizeInstructions(proto, i, result, commentPrefix);
-                        // 再增加一个把栈顶值放入eval-stack的指令
-                        MakeSetTopOfEvalStackInst(proto, i, result, proto.tmp1StackTopSlotIndex,
-                          commentPrefix + " ldc " + value);
+                        PushIntoEvalStackTopSlot(proto, proto.tmp1StackTopSlotIndex, i, result, commentPrefix + " ldc " + value);
                     }
                     break;
                 case Code.Ldnull:
                     {
                         // 加载null到eval stack
-
                         // 加载nil
                         MakeLoadNilInst(proto, i, result, proto.tmp1StackTopSlotIndex, commentPrefix);
-                        AddEvalStackSizeInstructions(proto, i, result, commentPrefix);
-                        // 设置nil
-                        MakeSetTopOfEvalStackInst(proto, i, result, proto.tmp1StackTopSlotIndex, commentPrefix + " ldnull");
+                        PushIntoEvalStackTopSlot(proto, proto.tmp1StackTopSlotIndex, i, result, commentPrefix + " lnull" );
                     }
                     break;
                 case Code.Ldstr:
@@ -815,10 +806,9 @@ namespace gsharpc
                         var constValue = i.Operand.ToString();
                         var literalValueInUvms = TranslatorUtils.Escape(constValue);
                         var valueIdx = proto.InternConstantValue(literalValueInUvms);
-                        AddEvalStackSizeInstructions(proto, i, result, commentPrefix);
-                        // 设置string                          
-                        result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_SETTABLE,
-                          "settable %" + proto.evalStackIndex + " %" + proto.evalStackSizeIndex + " const \"" + literalValueInUvms + "\"" + commentPrefix + " ldstr", i));
+
+                        PushStrIntoEvalStackTopSlot(proto, literalValueInUvms, i, result, commentPrefix + " ldstr " );
+
                     }
                     break;
                 case Code.Add:
@@ -938,7 +928,7 @@ namespace gsharpc
                 case Code.Call:
                 case Code.Callvirt:
                     {
-                        result.Add(proto.MakeEmptyInstruction(i.ToString()));
+                        //result.Add(proto.MakeEmptyInstruction(i.ToString()));
                         var operand = (MethodReference)i.Operand;
                         var calledMethod = operand;
                         var methodName = calledMethod.Name;
@@ -952,7 +942,7 @@ namespace gsharpc
                         var returnCount = hasReturn ? 1 : 0;
                         var isUserDefineFunc = false; // 如果是本类中要生成uvm字节码的方法，这里标记为true
                         var isUserDefinedInTableFunc = false; // 是否是模拟table的类型中的成员方法，这样的函数需要gettable取出函数再调用
-                        var targetModuleName = ""; // 转成lua后对应的模块名称，比如可能转成print，也可能转成table.concat等
+                        var targetModuleName = ""; // 转成uvm后对应的模块名称，比如可能转成print，也可能转成table.concat等
                         var targetFuncName = ""; // 全局方法名或模块中的方法名，或者本模块中的名称
                         var useOpcode = false;
                         if (calledTypeName == "System.Console")
@@ -1154,8 +1144,7 @@ namespace gsharpc
                                 var globalPropName = "caller";
                                 result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETTABUP,
                                   "gettabup %" + proto.tmp1StackTopSlotIndex + " @" + envIndex + " const \"" + globalPropName + "\"" + commentPrefix, i));
-                                AddEvalStackSizeInstructions(proto, i, result, commentPrefix);
-                                MakeSetTopOfEvalStackInst(proto, i, result, proto.tmp1StackTopSlotIndex, commentPrefix);
+                                PushIntoEvalStackTopSlot(proto, proto.tmp1StackTopSlotIndex, i, result, commentPrefix );
                                 return result;
                             }
                             else if (methodName == "caller_address")
@@ -1165,8 +1154,9 @@ namespace gsharpc
                                 var globalPropName = "caller_address";
                                 result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETTABUP,
                                   "gettabup %" + proto.tmp1StackTopSlotIndex + " @" + envIndex + " const \"" + globalPropName + "\"" + commentPrefix, i));
-                                AddEvalStackSizeInstructions(proto, i, result, commentPrefix);
-                                MakeSetTopOfEvalStackInst(proto, i, result, proto.tmp1StackTopSlotIndex, commentPrefix);
+                               
+                                PushIntoEvalStackTopSlot(proto, proto.tmp1StackTopSlotIndex, i, result, commentPrefix );
+
                                 return result;
                             }
                             else if (UvmCoreLib.UvmCoreFuncs.GlobalFuncsMapping.ContainsKey(methodName))
@@ -1270,13 +1260,10 @@ namespace gsharpc
                                 targetFuncName = "emit";
                                 paramsCount++;
                                 // 弹出eventArg，压入eventName，然后压回eventArg
-                                MakeGetTopOfEvalStackInst(proto, i, result, proto.tmp2StackTopSlotIndex, commentPrefix);
-                                SubEvalStackSizeInstructions(proto, i, result, commentPrefix);
-                                MakeLoadConstInst(proto, i, result, proto.tmp1StackTopSlotIndex, eventName, commentPrefix);
-                                AddEvalStackSizeInstructions(proto, i, result, commentPrefix);
-                                MakeSetTopOfEvalStackInst(proto, i, result, proto.tmp1StackTopSlotIndex, commentPrefix);
-                                AddEvalStackSizeInstructions(proto, i, result, commentPrefix);
-                                MakeSetTopOfEvalStackInst(proto, i, result, proto.tmp2StackTopSlotIndex, commentPrefix);
+                                PopFromEvalStackTopSlot(proto, proto.tmp2StackTopSlotIndex, i, result, commentPrefix);
+                                MakeLoadConstInst(proto, i, result, proto.tmp1StackTopSlotIndex, eventName, commentPrefix);                              
+                                PushIntoEvalStackTopSlot(proto, proto.tmp1StackTopSlotIndex, i, result, commentPrefix );
+                                PushIntoEvalStackTopSlot(proto, proto.tmp2StackTopSlotIndex, i, result, commentPrefix );
                             }
                             else
                             {
@@ -1355,7 +1342,7 @@ namespace gsharpc
                                 }
                             }
 
-                            MakeGetTopOfEvalStackInst(proto, i, result, slotIndex, commentPrefix);
+                            PopFromEvalStackTopSlot(proto, slotIndex, i, result, commentPrefix);
 
                             // 对于布尔类型，因为.net中布尔类型参数加载的时候用的ldc.i，加载的是整数，所以这里要进行类型转换成bool类型，使用 not not a来转换
                             if (needConvtToBool)
@@ -1363,11 +1350,7 @@ namespace gsharpc
                                 result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + slotIndex + " %" + slotIndex + commentPrefix, i));
                                 result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + slotIndex + " %" + slotIndex + commentPrefix, i));
                             }
-                            // 这里暂时用tmpMax存放nil
 
-                            MakeLoadNilInst(proto, i, result, proto.tmpMaxStackTopSlotIndex, commentPrefix);
-                            MakeSetTopOfEvalStackInst(proto, i, result, proto.tmpMaxStackTopSlotIndex, commentPrefix);
-                            SubEvalStackSizeInstructions(proto, i, result, commentPrefix);
                         }
 
                         var resultSlotIndex = proto.tmp2StackTopSlotIndex;
@@ -1425,7 +1408,7 @@ namespace gsharpc
                             {
                                 var tableSlot = argStartSlot;
                                 result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LEN, "len %" + proto.tmp1StackTopSlotIndex + " %" + tableSlot + commentPrefix, i));
-                                LoadNilInstruction(proto, resultSlotIndex, i, result, commentPrefix);
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADNIL,"loadnil %" + resultSlotIndex + " 0" + commentPrefix, i));
                                 result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_SETTABLE, "settable %" + tableSlot + " %" + proto.tmp1StackTopSlotIndex + " %" + resultSlotIndex + commentPrefix + "array.pop", i));
                             }
                             else if (targetFuncName == "map.pairs")
@@ -1481,31 +1464,42 @@ namespace gsharpc
                         }
                         else if (isUserDefineFunc)
                         {
+                            //if (!isUserDefinedInTableFunc)
+                            //{
+                            //    //访问本类成员方法
+                            //    var protoName = TranslatorUtils.MakeProtoName(calledMethod);
+                            //    var funcUpvalIndex = proto.InternUpvalue(protoName); 
+                            //    proto.InternConstantValue(protoName);
 
-                                // 访问其他类的成员方法，需要gettable取出函数
-                                var protoName = TranslatorUtils.MakeProtoName(calledMethod);
-                                var funcUpvalIndex = proto.InternUpvalue(protoName);
-                                proto.InternConstantValue(protoName);
-                                if (targetFuncName == null || targetFuncName.Length < 1)
-                                {
-                                    targetFuncName = calledMethod.Name;
-                                }
-                                MakeLoadConstInst(proto, i, result, proto.tmp2StackTopSlotIndex, targetFuncName, commentPrefix);
-                                if (needPopFirstArg)
-                                {
-                                    // object模拟uvm module，module信息在calledMethod的this参数中
-                                    // 这时候eval stack应该是[this], argStart开始的数据应该是this, ...
-                                    // result.AddRange(DebugEvalStack(proto));
-                                    MakeGetTopOfEvalStackInst(proto, i, result, proto.tmp1StackTopSlotIndex, commentPrefix);
-                                    SubEvalStackSizeInstructions(proto, i, result, commentPrefix);
-                                    result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETTABLE,
-                                        "gettable %" + proto.tmp2StackTopSlotIndex + " %" + proto.tmp1StackTopSlotIndex + " %" + proto.tmp2StackTopSlotIndex + commentPrefix, i));
-                                }
-                                else
-                                {
-                                    result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETTABLE,
-                                        "gettable %" + proto.tmp2StackTopSlotIndex + " %" + argStartSlot + " %" + proto.tmp2StackTopSlotIndex + commentPrefix, i));
-                                }
+                            //    result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETUPVAL,
+                            //            "getupval %" + proto.tmp2StackTopSlotIndex + " @" + funcUpvalIndex + commentPrefix, i));
+                            //}
+                            //else
+                            //{ 
+                            // 访问其他类的成员方法，需要gettable取出函数
+                            var protoName = TranslatorUtils.MakeProtoName(calledMethod);
+                            //var funcUpvalIndex = proto.InternUpvalue(protoName);  //check zq  delete ?? 删除，无需从upvalue里取， 从table中取，因为class创建closure时候未追加伪指令操作upvalue
+                            proto.InternConstantValue(protoName);
+                            if (targetFuncName == null || targetFuncName.Length < 1)
+                            {
+                                targetFuncName = calledMethod.Name;
+                            }
+                            MakeLoadConstInst(proto, i, result, proto.tmp2StackTopSlotIndex, targetFuncName, commentPrefix);
+                            if (needPopFirstArg)
+                            {
+                                // object模拟uvm module，module信息在calledMethod的this参数中
+                                // 这时候eval stack应该是[this], argStart开始的数据应该是this, ...
+                                // result.AddRange(DebugEvalStack(proto));
+                                PopFromEvalStackTopSlot(proto, proto.tmp1StackTopSlotIndex, i, result, commentPrefix);
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETTABLE,
+                                    "gettable %" + proto.tmp2StackTopSlotIndex + " %" + proto.tmp1StackTopSlotIndex + " %" + proto.tmp2StackTopSlotIndex + commentPrefix, i));
+                            }
+                            else
+                            {
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETTABLE,
+                                    "gettable %" + proto.tmp2StackTopSlotIndex + " %" + argStartSlot + " %" + proto.tmp2StackTopSlotIndex + commentPrefix, i));
+                            }
+                            //}
 
                         }
                         else if (targetModuleName.Length < 1)
@@ -1526,18 +1520,20 @@ namespace gsharpc
                             result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_CALL,
                                 "call %" + proto.tmp2StackTopSlotIndex + " " + (paramsCount + 1) + " " + (returnCount + 1) +
                                 commentPrefix, i));
-                            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_MOVE, "move %" + proto.tmp3StackTopSlotIndex + " %" + proto.tmp2StackTopSlotIndex + commentPrefix, i));
+                            //check zq ???
+                            //result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_MOVE, "move %" + proto.tmp3StackTopSlotIndex + " %" + proto.tmp2StackTopSlotIndex + commentPrefix, i));
+
+
                         }
-                        else if (hasReturn)
-                        {
-                            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_MOVE, "move %" + proto.tmp3StackTopSlotIndex + " %" + proto.tmp2StackTopSlotIndex + commentPrefix, i));
-                        }
+                        //else if (hasReturn)
+                        //{
+                        //    result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_MOVE, "move %" + proto.tmp3StackTopSlotIndex + " %" + proto.tmp2StackTopSlotIndex + commentPrefix, i));
+                        //}
                         // 把调用结果存回eval-stack
                         if (hasReturn)
                         {
-                            // 调用结果在tmp3
-                            AddEvalStackSizeInstructions(proto, i, result, commentPrefix);
-                            MakeSetTopOfEvalStackInst(proto, i, result, proto.tmp3StackTopSlotIndex, commentPrefix);
+                            // 调用结果在tmp2
+                            PushIntoEvalStackTopSlot(proto, proto.tmp2StackTopSlotIndex, i, result, commentPrefix );
                         }
                     }
                     break;
@@ -1616,24 +1612,18 @@ namespace gsharpc
                             throw new Exception("Not supported opcode " + opCode);
                         }
                         // 从eval stack弹出两个值(top和top-1)，比较大小，比较结果存入eval stack
-                        result.Add(proto.MakeEmptyInstruction(i.ToString()));
+                        //result.Add(proto.MakeEmptyInstruction(i.ToString()));
 
                         // 消耗eval stack的顶部2个值, 然后比较，比较结果存入eval stack
                         // 获取eval stack顶部的值
                         proto.InternConstantValue(1);
                         var arg1SlotIndex = proto.tmp3StackTopSlotIndex + 1; // top-1
                         var arg2SlotIndex = proto.tmp3StackTopSlotIndex + 2; // top
-                        MakeGetTopOfEvalStackInst(proto, i, result, arg2SlotIndex, commentPrefix);
-                        // eval stack弹出1个值
-                        MakeLoadNilInst(proto, i, result, proto.tmp3StackTopSlotIndex, commentPrefix);
-                        MakeSetTopOfEvalStackInst(proto, i, result, proto.tmp3StackTopSlotIndex, commentPrefix);
-                        SubEvalStackSizeInstructions(proto, i, result, commentPrefix);
+
+                        PopFromEvalStackTopSlot(proto, arg2SlotIndex, i, result, commentPrefix);
 
                         // 再次获取eval stack栈顶的值
-                        MakeGetTopOfEvalStackInst(proto, i, result, arg1SlotIndex, commentPrefix);
-                        // eval stack弹出一个值
-                        MakeSetTopOfEvalStackInst(proto, i, result, proto.tmp3StackTopSlotIndex, commentPrefix);
-                        SubEvalStackSizeInstructions(proto, i, result, commentPrefix);
+                        PopFromEvalStackTopSlot(proto, arg1SlotIndex, i, result, commentPrefix);
 
                         // 比较
                         if (compareType == "eq")
@@ -1713,7 +1703,8 @@ namespace gsharpc
                         // result.AddRange(DebugEvalStack(proto));
 
                         // 先判断eval stack top 是否是 1 or zero(根据是brtrue/brfalse决定cmpValue)
-                        MakeGetTopOfEvalStackInst(proto, i, result, proto.tmp2StackTopSlotIndex, commentPrefix);
+                        PopFromEvalStackTopSlot(proto, proto.tmp2StackTopSlotIndex, i, result, commentPrefix);
+
                         MakeLoadConstInst(proto, i, result, proto.tmp3StackTopSlotIndex, 0, commentPrefix);
                         // eq: if ((tmp2 == 0) ~= A) then pc++
                         result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_ADD,
@@ -1746,7 +1737,9 @@ namespace gsharpc
                         var returnCount = proto.method.MethodReturnType.ReturnType.FullName == typeof(void).FullName ? 0 : 1;
                         if (returnCount > 0)
                         {
-                            MakeGetTopOfEvalStackInst(proto, i, result, proto.tmp1StackTopSlotIndex, commentPrefix);
+                            //此时应把所有evalstack pop出来 
+                            PopFromEvalStackTopSlot(proto, proto.tmp1StackTopSlotIndex, i, result, commentPrefix);
+                            //MakeGetTopOfEvalStackInst(proto, i, result, proto.tmp1StackTopSlotIndex, commentPrefix);
                             result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_RETURN, "return %" + proto.tmp1StackTopSlotIndex + " " + (returnCount + 1) + commentPrefix, i));
                         }
                         result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_RETURN, "return %0 1" + commentPrefix + " ret", i));
@@ -1760,8 +1753,8 @@ namespace gsharpc
                         // 创建一个空数组放入eval-stack顶
                         // 获取eval stack顶部的值                   
                         result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NEWTABLE, "newtable %" + proto.tmp2StackTopSlotIndex + " 0 0" + commentPrefix, i));
-                        AddEvalStackSizeInstructions(proto, i, result, commentPrefix);
-                        MakeSetTopOfEvalStackInst(proto, i, result, proto.tmp2StackTopSlotIndex, commentPrefix + " newarr");
+                       
+                        PushIntoEvalStackTopSlot(proto, proto.tmp2StackTopSlotIndex, i, result, commentPrefix + " newarr ");
                     }
                     break;
                 case Code.Initobj:
@@ -1770,10 +1763,10 @@ namespace gsharpc
                         // 将位于指定地址的值类型的每个字段初始化为空引用或适当的基元类型的 0  
                         // TODO: 根据是什么类型进行init，如果是Nullable类型进行initobj，则弹出数据，插入nil
                         // TODO: 改成 if判断是否nil，如果是nil，保持，如果不是，设置为nil
-                        LoadNilInstruction(proto, proto.tmp1StackTopSlotIndex, i, result, commentPrefix);
-                        PopFromEvalStackToSlot(proto, proto.tmp2StackTopSlotIndex, proto.tmp1StackTopSlotIndex, i, result, commentPrefix);
-                        AddEvalStackSizeInstructions(proto, i, result, commentPrefix);
-                        result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_SETTABLE, "settable %" + proto.evalStackIndex + " %" + proto.evalStackSizeIndex + " %" + proto.tmp1StackTopSlotIndex, i));
+                        /*modify by zq */ // LoadNilInstruction(proto, proto.tmp1StackTopSlotIndex, i, result, commentPrefix);
+                        //PopFromEvalStackToSlot(proto, proto.tmp2StackTopSlotIndex, proto.nilSlotIndex, i, result, commentPrefix);
+                        //AddEvalStackSizeInstructions(proto, i, result, commentPrefix);
+                        //result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_SETTABLE, "settable %" + proto.evalStackIndex + " %" + proto.evalStackSizeIndex + " %" + proto.nilSlotIndex, i));
                         proto.AddNotMappedILInstruction(i);
                         // return result;
                     }
@@ -1800,34 +1793,32 @@ namespace gsharpc
                               "closure %" + proto.tmp2StackTopSlotIndex + " " + protoName, i));
                             result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_CALL,
                               "call %" + proto.tmp2StackTopSlotIndex + " 1 2", i));
-                            // 返回值(新对象处于tmp2 slot)
+                            // 返回值(新对象处于tmp2 slot) 
                         }
                         else
                         {
                             // 创建一个空的未初始化对象放入eval-stack顶
-                            // 获取eval stack顶部的值                   
+                            // 获取eval stack顶部的值                   //有问题 check zq ????使用与于contract.storage = new Storage();  但其他class不适合？
                             result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NEWTABLE, "newtable %" + proto.tmp2StackTopSlotIndex + " 0 0" + commentPrefix, i));
                         }
 
-                        AddEvalStackSizeInstructions(proto, i, result, commentPrefix);
-                        MakeSetTopOfEvalStackInst(proto, i, result, proto.tmp2StackTopSlotIndex, commentPrefix + " newobj");
+                        PushIntoEvalStackTopSlot(proto, proto.tmp2StackTopSlotIndex, i, result, commentPrefix + " newobj ");
+
                     }
                     break;
                 case Code.Dup:
                     {
                         // 把eval stack栈顶元素复制一份到eval-stack顶
                         // 获取eval stack顶部的值
-                        MakeGetTopOfEvalStackInst(proto, i, result, proto.tmp2StackTopSlotIndex, commentPrefix);
-                        AddEvalStackSizeInstructions(proto, i, result, commentPrefix);
-                        MakeSetTopOfEvalStackInst(proto, i, result, proto.evalStackSizeIndex, commentPrefix + " dup"); // FIXME: valueSlot maybe need to change to proto.tmp2StackTopSlotIndex
+                        PopFromEvalStackTopSlot(proto, proto.tmp2StackTopSlotIndex, i, result, commentPrefix + " dup");
+                        PushIntoEvalStackTopSlot(proto, proto.tmp2StackTopSlotIndex, i, result, commentPrefix + " dup ");
+                        PushIntoEvalStackTopSlot(proto, proto.tmp2StackTopSlotIndex, i, result, commentPrefix + " dup ");
+
                     }
                     break;
                 case Code.Pop:
                     {
-                        // 移除当前位于计算堆栈顶部的值
-                        MakeLoadNilInst(proto, i, result, proto.tmp3StackTopSlotIndex, commentPrefix);
-                        MakeSetTopOfEvalStackInst(proto, i, result, proto.tmp3StackTopSlotIndex, commentPrefix);
-                        SubEvalStackSizeInstructions(proto, i, result, commentPrefix + " pop");
+                        PopFromEvalStackTopSlot(proto, proto.tmpMaxStackTopSlotIndex, i, result, commentPrefix);
                     }
                     break;
                 case Code.Stelem_Ref:
@@ -1911,6 +1902,20 @@ namespace gsharpc
                         proto.AddNotMappedILInstruction(i);
                     }
                     break;
+                case Code.Castclass:
+                    {
+                            string operand = i.Operand.ToString();
+                            if (operand.StartsWith("UvmCoreLib.UvmMap") ||
+                                operand.StartsWith("UvmCoreLib.UvmArray"))
+                            {
+                                break;
+                            }
+                            else
+                            {
+                                throw new Exception("not supported op code " + Code.Castclass);
+                            }
+                       
+                    }
                 default:
                     {
                         throw new Exception("not supported opcode " + i.OpCode + " now");
@@ -1932,7 +1937,7 @@ namespace gsharpc
             return count;
         }
 
-        private UvmProto TranslateILMethod(MethodDefinition method, StringBuilder ilContentBuilder, StringBuilder luaAsmBuilder, UvmProto parentProto)
+        private UvmProto TranslateILMethod(MethodDefinition method, StringBuilder ilContentBuilder, StringBuilder uvmAsmBuilder, UvmProto parentProto)
         {
             if (method.Name.Equals(".ctor"))
             {
@@ -1955,7 +1960,7 @@ namespace gsharpc
             ilContentBuilder.Append("method " + method.FullName + ", simple name is " + method.Name + "\r\n");
             // 在uvm的proto开头创建一个table局部变量，模拟evaluation stack
             var createEvalStackInst = UvmInstruction.Create(UvmOpCodeEnums.OP_NEWTABLE, null); // 除参数外的第一个局部变量固定用作eval stack
-                                                                                                 // createEvalStackInst.LineInSource = method.
+                                                                                               // createEvalStackInst.LineInSource = method.
             proto.evalStackIndex = proto.SizeP; // eval stack所在的局部变量的slot index
             createEvalStackInst.AsmLine = "newtable %" + proto.evalStackIndex + " 0 0";
             proto.AddInstruction(createEvalStackInst);
@@ -1966,8 +1971,12 @@ namespace gsharpc
             proto.InternConstantValue(1);
             proto.AddInstruction(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADK, "loadk %" + proto.evalStackSizeIndex + " const 0", null));
 
+            //add by zq 
+            //proto.nilSlotIndex = proto.evalStackSizeIndex + 2; // 固定存储nil的slot
+            //proto.AddInstruction(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADNIL, "loadnil %" + proto.nilSlotIndex + " 0", null));
+
             // 除了eval-stack的额外局部变量slot，额外还要提供2个slot用来存放一个栈顶值，用来做存到eval-stack的中转
-            proto.tmp1StackTopSlotIndex = proto.evalStackIndex + 2; // 临时存储，比如存放栈中取出的值或者参数值，返回值等
+            proto.tmp1StackTopSlotIndex = proto.evalStackSizeIndex + 1; // 临时存储，比如存放栈中取出的值或者参数值，返回值等
             proto.tmp2StackTopSlotIndex = proto.tmp1StackTopSlotIndex + 1; // 临时存储，比如存放临时的栈顶值或者参数值等
             proto.tmp3StackTopSlotIndex = proto.tmp2StackTopSlotIndex + 1; // 临时存储，比如存放临时的参数值或者nil等
             proto.tmpMaxStackTopSlotIndex = proto.tmp1StackTopSlotIndex + 17; // 目前最多支持18个临时存储
@@ -1980,6 +1989,42 @@ namespace gsharpc
             proto.maxCallStackSize = 0;
 
             var lastLinenumber = 0;
+
+
+            //add by zq
+            //GroupILInstructions(proto, method);
+            //foreach (var ilgroup in proto.ILInsGroups)
+            //{
+            //    Instruction i = ilgroup.ILInstructions[0];
+            //    ilContentBuilder.Append("" + i.OpCode + " " + i.Operand + "\r\n");
+            //    var commentPrefix = ";"; // 一行指令的行信息的注释前缀
+            //    var hasLineInfo = i.SequencePoint != null;
+            //    if (hasLineInfo)
+            //    {
+            //        var startLine = i.SequencePoint.StartLine;
+            //        var endLine = i.SequencePoint.EndLine;
+            //        if (startLine > 1000000)
+            //        {
+            //            startLine = lastLinenumber;
+            //        }
+            //        commentPrefix += "L" + startLine + ";";
+            //        lastLinenumber = startLine;
+            //    }
+            //    else
+            //    {
+            //        commentPrefix += "L" + lastLinenumber + ";";
+            //    }
+            //    var dotnetOpStr = i.OpCode.ToString();
+            //    // commentPrefix += dotnetOpStr;
+            //    // 关于.net的evaluation stack在uvm字节码虚拟机中的实现方式
+            //    // 维护一个evaluation stack的局部变量,，每个proto入口处清空它
+            //    var uvmInstructions = TranslateILInstructionsGroup(proto, ilgroup, commentPrefix, false);
+            //    foreach (var uvmInst in uvmInstructions)
+            //    {
+            //        proto.AddInstruction(uvmInst);
+            //    }
+            //}
+
 
             // 不需要支持类型的虚函数调用，只支持静态函数
             foreach (var i in method.Body.Instructions)
@@ -2023,6 +2068,13 @@ namespace gsharpc
                     inst.LocationLabel = proto.NeededLocationsMap[j];
                 }
             }
+
+
+            //add by zq 扫描uvm instructions 去除冗余代码
+            ReduceProtoUvmInsts(proto);
+
+
+
             // TODO: 可能jmp到指令尾部?
 
             if (proto.CodeInstructions.Count < 1)
@@ -2064,9 +2116,9 @@ namespace gsharpc
             var sampleModule = assemblyDefinition.MainModule; // ModuleDefinition.ReadModule(sampleAssemblyPath);
             var translator = new ILToUvmTranslator();
             var ilContentBuilder = new StringBuilder();
-            var luaAsmContentBuilder = new StringBuilder();
+            var uvmAsmContentBuilder = new StringBuilder();
             var symbolReader = sampleModule.SymbolReader;
-            translator.TranslateModule(sampleModule, ilContentBuilder, luaAsmContentBuilder);
+            translator.TranslateModule(sampleModule, ilContentBuilder, uvmAsmContentBuilder);
             var ilText = ilContentBuilder.ToString();
 
             var fileDir = Path.GetDirectoryName(dllFilepath);
@@ -2078,7 +2130,7 @@ namespace gsharpc
                 ilAssFile.Write(bytes, 0, bytes.Length);
             }
 
-            var assText = luaAsmContentBuilder.ToString();
+            var assText = uvmAsmContentBuilder.ToString();
 
             var uvmsOutputFilePath = Path.GetFullPath(Path.Combine(fileDir, dllFileName + ".uvms"));
             using (var outFileStream = File.Create(uvmsOutputFilePath))
@@ -2095,6 +2147,412 @@ namespace gsharpc
             }
             return uvmsOutputFilePath;
         }
+
+
+        //add by zq 
+        //private IList<UvmInstruction> TranslateILInstructionsGroup(UvmProto proto, ILInstructionGroup ILgroup, string commentPrefix, bool onlyNeedResultCount)
+        //{
+        //    var result = new List<UvmInstruction>();
+        //    if (ILgroup == null || ILgroup.ILInstructions.Count < 1)
+        //    {
+        //        throw new Exception("TranslateILInstructionsGroup程序出错");
+        //    }
+
+        //    switch (ILgroup.GroupCode)
+        //    {
+        //        case ILGroupCode.NoGroup:
+        //            {
+        //                result = (List<UvmInstruction>)TranslateILInstruction(proto, ILgroup.ILInstructions[0], commentPrefix, onlyNeedResultCount);
+        //                break;
+
+        //            }
+        //        case ILGroupCode.LdSt:
+        //            {
+        //                var LdStComment = commentPrefix + " LdSt group translate";
+        //                int fromSlot = -1;
+        //                int targetSlot = GetTargetSlotIndex(proto, ILgroup.ILInstructions[1]);
+        //                Instruction i = ILgroup.ILInstructions[0];
+        //                var code = i.OpCode.Code;
+        //                var codestr = code.ToString();
+        //                if (codestr.StartsWith("Ldarg"))
+        //                {
+        //                    int argLoc;
+        //                    ParameterDefinition argInfo = null;
+
+        //                    if (code == Code.Ldarg || code == Code.Ldarg_S || code == Code.Ldarga || code == Code.Ldarga_S)
+        //                    {
+        //                        argInfo = i.Operand as ParameterDefinition;
+        //                        argLoc = argInfo.Index;
+        //                    }
+        //                    else
+        //                    {
+        //                        argLoc = i.OpCode.Value - 3;
+        //                    }
+        //                    if (proto.method.HasThis)
+        //                    {
+        //                        argLoc++;
+        //                    }
+        //                    fromSlot = argLoc;
+        //                    result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_MOVE,
+        //                      "move %" + targetSlot + " %" + fromSlot + LdStComment, i));
+
+        //                }
+        //                else if (codestr.StartsWith("Ldc_"))
+        //                {
+        //                    // 加载int/float常量到eval stack
+
+        //                    var value = (code == Code.Ldc_I4_S || code == Code.Ldc_I4
+        //                      || code == Code.Ldc_I4_M1 || code == Code.Ldc_R4
+        //                      || code == Code.Ldc_R8 || code == Code.Ldc_I8) ? i.Operand : (i.OpCode.Value - 22);
+
+        //                    MakeLoadConstInst(proto, i, result, targetSlot, value, LdStComment);
+
+        //                }
+        //                else if (code == Code.Ldloc || code == Code.Ldloc_0 || code == Code.Ldloc_0 || code == Code.Ldloc_1 || code == Code.Ldloc_2 ||
+        //                    code == Code.Ldloc_3 || code == Code.Ldloc_S /*|| code == Code.Ldloca || code == Code.Ldloca_S */ )
+        //                {
+        //                    VariableDefinition varInfo = null;
+        //                    int loc;
+        //                    if (code == Code.Ldloc_S || code == Code.Ldloc || code == Code.Ldloca || code == Code.Ldloca_S)
+        //                    {
+        //                        varInfo = i.Operand as VariableDefinition;
+        //                        loc = varInfo.Index;
+        //                    }
+        //                    else
+        //                    {
+        //                        loc = i.OpCode.Value - 6;
+        //                        if (loc > proto.maxCallStackSize)
+        //                        {
+        //                            proto.maxCallStackSize = loc;  //变更
+        //                        }
+        //                    }
+
+        //                    fromSlot = proto.callStackStartIndex + loc;
+        //                    result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_MOVE,
+        //                      "move %" + targetSlot + " %" + fromSlot + LdStComment, i));
+
+        //                }
+        //                else if (code == Code.Ldstr)
+        //                {
+        //                    var constValue = ILgroup.ILInstructions[0].Operand.ToString();
+        //                    var literalValueInUvms = TranslatorUtils.Escape(constValue);
+        //                    var valueIdx = proto.InternConstantValue(literalValueInUvms);
+        //                    // 设置string 
+        //                    MakeLoadConstInst(proto, i, result, targetSlot, constValue, LdStComment);
+
+        //                }
+        //                else if (code == Code.Ldnull)
+        //                {
+        //                    MakeLoadNilInst(proto, i, result, targetSlot, LdStComment);
+        //                }
+        //                else
+        //                {
+        //                    throw new Exception("TranslateILInstructionsGroup程序出错,错误的ILcode:" + code);
+        //                }
+        //                proto.AddNotMappedILInstruction(ILgroup.ILInstructions[1]); //添加
+        //                break;
+        //            }
+        //        default:
+        //            {
+        //                throw new Exception("TranslateILInstructionsGroup程序出错,不支持的ILGroupCode:" + ILgroup.GroupCode);
+
+        //            }
+        //    }
+
+        //    result.Add(proto.MakeEmptyInstruction(ILgroup.ILInstructions[0].ToString()));
+        //    return result;
+        //}
+
+
+        private int GetTargetSlotIndex(UvmProto proto, Instruction i)
+        {
+            int targetSlot = -1;
+
+            switch (i.OpCode.Code)
+            {
+                case Code.Stloc:
+                case Code.Stloc_S:
+                case Code.Stloc_0:
+                case Code.Stloc_1:
+                case Code.Stloc_2:
+                case Code.Stloc_3:
+                    {
+                        // 从evaluation stack 弹出栈顶数据复制到call stack slot
+                        // ->uvm. 取出eval stack的长度, 从eval stack的slot中弹出数据到栈顶，然后move到合适slot，然后弹出栈顶
+                        int loc;
+                        VariableDefinition varInfo = null;
+                        if (i.OpCode.Code == Code.Stloc_S)
+                        {
+                            varInfo = i.Operand as VariableDefinition;
+                            loc = varInfo.Index;
+                        }
+                        else
+                        {
+                            loc = i.OpCode.Value - 10;
+                        }
+                        if (loc > proto.maxCallStackSize)
+                        {
+                            proto.maxCallStackSize = loc;
+                        }
+                        targetSlot = proto.callStackStartIndex + loc;
+                    }
+                    break;
+                case Code.Starg:
+                case Code.Starg_S:
+                    {
+                        // 将位于计算堆栈顶部的值存储到位于指定索引的参数槽中
+                        int argLoc;
+                        ParameterDefinition argInfo = i.Operand as ParameterDefinition;
+                        argLoc = argInfo.Index;
+                        var argSlot = argLoc;
+                        if (proto.method.HasThis)
+                        {
+                            argSlot++;
+                        }
+                        targetSlot = argSlot;
+                    }
+                    break;
+                default:
+                    {
+                        throw new Exception("程序出错，只有st类型opcode指令才能GetTargetSlotIndex");
+                    }
+            }
+            return targetSlot;
+        }
+
+  
+
+        //------------------------reduce code imp----------------------------------
+        private void checkSlot(string slot)
+        {
+            if (!slot.StartsWith("%"))
+            {
+                throw new Exception("error ReduceUvmInsts,invalid uvm inst:slot");
+            }
+        }
+
+        private void checkConstStr(string str)
+        {
+            if (!str.StartsWith("const ")|| !str.EndsWith("\""))
+            {
+                throw new Exception("error ReduceUvmInsts,invalid uvm inst[" + str + "]");
+            }
+        }
+
+        private int getLtCount(List<int> intlist, int inta)
+        {
+            int count = 0;
+            foreach (var i in intlist)
+            {
+                if (i < inta) count++;
+            }
+            return count;
+        }
+
+        private void checkLoctionMoveRight(int originalLoc, int newLoc, UvmProto proto)
+        {
+            if (newLoc < originalLoc && newLoc >= 0)
+            {
+                int newIdx = 0;
+                for (int j = 0; j < originalLoc; j++)
+                {
+                    if (!(proto.CodeInstructions[j] is UvmEmptyInstruction))
+                    {
+                        newIdx++;
+                    }
+                }
+                if (proto.CodeInstructions[originalLoc].LocationLabel == null || newLoc != newIdx)
+                {
+                    throw new Exception("loc move error,please check!!!!");
+                }
+            }
+        }
+
+
+        private void ReduceProtoUvmInsts(UvmProto proto)
+        {
+            Console.Write("begin reduce: proto name = " + proto.Name + " totalLines = " + proto.CodeInstructions.Count() + "\n");
+            int r = 0;
+            int totalReduceLines = 0;
+            int idx = 0;
+            do
+            {
+                Console.WriteLine("idx=" + idx + " , reduce proto begin:" + proto.Name);
+                r = ReduceUvmInstsImp(proto);
+                totalReduceLines = totalReduceLines + r;
+                idx++;
+            } while (r > 0);
+
+            Console.Write("proto name = " + proto.Name + " totalReduceLines = " + totalReduceLines + " , now totalLines = " + proto.CodeInstructions.Count() + "\n");
+        }
+
+
+    
+        private int ReduceUvmInstsImp(UvmProto proto)
+        {
+            var notEmptyCodeInstructions = new List<UvmInstruction>();
+            foreach (var codeInst in proto.CodeInstructions)
+            {
+                if (!(codeInst is UvmEmptyInstruction))
+                {
+                    notEmptyCodeInstructions.Add(codeInst);
+                }
+            }
+            proto.CodeInstructions.Clear();
+            foreach (var inst in notEmptyCodeInstructions)
+            {
+                proto.CodeInstructions.Add(inst);
+            }
+
+            var CodeInstructions = proto.CodeInstructions;
+            List<int> delIndexes = new List<int>();
+            List<int> modifyIndexes = new List<int>();
+            List<UvmInstruction> modifyUvmIns = new List<UvmInstruction>();
+            List<string> uvmJmpIns = new List<string>();
+            
+            var UvmInstCount = CodeInstructions.Count;
+            string affectedSlot = "";
+            string uvmInsstr = "";
+            int commentIndex = -1;
+            string commentPrefix = "";
+            string constStr = "";
+
+            for (int gIndex = 0; gIndex < UvmInstCount; gIndex++)
+            {
+                UvmInstruction uvmIns = CodeInstructions[gIndex];
+                if (uvmIns.IlInstruction == null)
+                {
+                    continue;
+                }
+
+                uvmInsstr = uvmIns.ToString().Trim();
+                commentIndex = uvmInsstr.IndexOf(";");
+                if (commentIndex >= 0)
+                {
+                    commentPrefix = "" + uvmInsstr.Substring(commentIndex);
+                    uvmInsstr = uvmInsstr.Substring(0, commentIndex);
+                }
+                else
+                {
+                    commentPrefix = "";
+                }
+                var ss = uvmInsstr.Split();
+
+
+                UvmOpCodeEnums opcode1 = CodeInstructions[gIndex].OpCode.OpCodeValue;
+                if((opcode1 == UvmOpCodeEnums.OP_PUSH) && (!CodeInstructions[gIndex].HasLocationLabel()))
+                {
+                    if (gIndex+1< UvmInstCount)
+                    {
+                        var ins2 = CodeInstructions[gIndex + 1];
+                        if ((ins2.OpCode.OpCodeValue == UvmOpCodeEnums.OP_POP) && (!ins2.HasLocationLabel()))
+                        {
+                            var ssCount = ss.Count();
+                            if ((ssCount == 2)&& ss[1].StartsWith("%"))
+                            {
+                                affectedSlot = ss[1];
+                            }
+                            else
+                            {
+                                affectedSlot = "";
+                                var constidx = uvmInsstr.IndexOf("const");
+                                if (constidx >= 0)
+                                {
+                                    constStr = uvmInsstr.Substring(constidx);
+                                    checkConstStr(constStr); 
+                                }
+                                else
+                                {
+                                    throw new Exception("error ReduceUvmInsts,invalid uvm inst:" + uvmInsstr);
+                                } 
+                                
+                            }
+
+
+                            var uvmInsstr2 = ins2.ToString().Trim();
+                            var commentIndex2 = uvmInsstr2.IndexOf(";");
+                         
+                            if (commentIndex2 >= 0)
+                            {
+                                commentPrefix = commentPrefix + "," + uvmInsstr2.Substring(commentIndex2);
+                                uvmInsstr2 = uvmInsstr2.Substring(0, commentIndex2);
+                            }
+
+
+                            
+                            var ss2 = uvmInsstr2.Split();
+                            var targetSlot = ss2[1];
+
+                            if (!targetSlot.StartsWith("%"))
+                            {
+                                throw new Exception("error ReduceUvmInsts,invalid uvm inst:" + uvmInsstr2);
+                            }
+    
+
+                            UvmInstruction inst;
+                            if (affectedSlot.StartsWith("%"))
+                            {
+                                inst = proto.MakeInstructionLine(UvmOpCodeEnums.OP_MOVE, "move " + targetSlot + " " + affectedSlot + commentPrefix + ";pushpop slot", uvmIns.IlInstruction);
+                            }
+                            else if (constStr.StartsWith("const "))
+                            {
+                                inst = proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADK, "loadk " + targetSlot + " " + constStr + commentPrefix + ";pushpop slot", uvmIns.IlInstruction);
+                            }
+                            else
+                            {
+                                throw new Exception("error ReduceUvmInsts,invalid uvm inst:" + uvmInsstr);
+                            }
+
+                            delIndexes.Add(gIndex);
+                            modifyIndexes.Add(gIndex+1);
+                            modifyUvmIns.Add(inst);
+                            Console.Write("find push-pop evaltop group, index " + gIndex + "," + (gIndex+1) + "\n");
+                        }
+                    }
+                }
+                
+            }
+            int delcount = delIndexes.Count();
+
+            foreach (var mi in modifyIndexes)
+            {
+                proto.CodeInstructions[mi] = modifyUvmIns[modifyIndexes.IndexOf(mi)];
+            }
+
+
+            //删除delindex对应的指令
+            if (delcount > 0)
+            {
+                for (int j = 0; j < delcount; j++)
+                {
+                    var instr = proto.CodeInstructions[delIndexes[j]].ToString();
+                    proto.CodeInstructions[delIndexes[j]] = proto.MakeEmptyInstruction(";deleted inst;original inst:" + instr);
+                }
+            }
+
+            //调整location map
+            int needLocCount = proto.NeededLocationsMap.Count();
+            if (needLocCount > 0 && delcount > 0)
+            {
+                Dictionary<int, string> locationMap = new Dictionary<int, string>();
+                foreach (var loc in proto.NeededLocationsMap)
+                {
+                    var newKey = loc.Key - getLtCount(delIndexes, loc.Key);
+                    checkLoctionMoveRight(loc.Key, newKey, proto);
+                    locationMap.Add(newKey, loc.Value);
+                }
+
+                proto.NeededLocationsMap.Clear();
+                foreach (var loc in locationMap)
+                {
+                    proto.NeededLocationsMap.Add(loc.Key, loc.Value);
+                }
+            }
+            Console.Write("reduce codeslines =" + delIndexes.Count() + "\n");
+            return delcount;
+        }
+
+
 
     }
 }
