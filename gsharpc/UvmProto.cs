@@ -56,14 +56,14 @@ namespace gsharpc
 
         // translating states
         public int paramsStartIndex { get; set; }
-        public int evalStackIndex { get; set; }
-        public int evalStackSizeIndex { get; set; }
+        //public int evalStackIndex { get; set; }
+        //public int evalStackSizeIndex { get; set; }
         public int tmp1StackTopSlotIndex { get; set; }
         public int tmp2StackTopSlotIndex { get; set; }
         public int tmp3StackTopSlotIndex { get; set; }
         public int tmpMaxStackTopSlotIndex { get; set; }
-        public int callStackStartIndex { get; set; }
-        public int maxCallStackSize { get; set; }
+        //public int callStackStartIndex { get; set; }
+        //public int maxCallStackSize { get; set; }
         public MethodDefinition method { get; set; }
 
         public bool InNotAffectMode { get; set; } // 是否处于proto数据不受影响的模式（调用proto函数不会改变proto状态的模式，伪装纯函数）
@@ -136,6 +136,14 @@ namespace gsharpc
                 builder.Append("\t" + (upvalue.Instack ? 1 : 0) + " " + upvalue.Idx + "\r\n");
             }
             builder.Append(".end_upvalue\r\n");
+
+            builder.Append(".begin_local\r\n");
+            SizeCode = CodeInstructions.Count;
+            foreach (var local in Locvars)
+            {
+                builder.Append("\t" + "\"" +local.Name + "\"" + " 1 " + SizeCode + "\r\n");
+            }
+            builder.Append(".end_local\r\n");
 
             builder.Append(".begin_code\r\n");
             foreach (var inst in CodeInstructions)
