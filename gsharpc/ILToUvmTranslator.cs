@@ -379,8 +379,97 @@ namespace gsharpc
             PushIntoEvalStackTopSlot(proto, proto.tmp2StackTopSlotIndex, i, result, commentPrefix + " add");
         }
 
+        //private void MakeCompareInstructions22(UvmProto proto, string compareType, Instruction i, IList<UvmInstruction> result,
+        //  string commentPrefix)
+        //{
+        //    // 从eval stack弹出两个值(top和top-1)，比较大小，比较结果存入eval stack
+        //    //result.Add(proto.MakeEmptyInstruction(i.ToString()));
+
+        //    // 消耗eval stack的顶部2个值, 然后比较，比较结果存入eval stack
+        //    // 获取eval stack顶部的值
+        //    proto.InternConstantValue(1);
+        //    var arg1SlotIndex = proto.tmp3StackTopSlotIndex + 1; // top
+        //    var arg2SlotIndex = proto.tmp3StackTopSlotIndex + 2; // top-1
+            
+        //    PopFromEvalStackTopSlot(proto, arg1SlotIndex, i, result, commentPrefix);
+
+        //    // 再次获取eval stack栈顶的值
+        //    PopFromEvalStackTopSlot(proto, arg2SlotIndex, i, result, commentPrefix);
+
+        //    // 比较arg1和arg2
+        //    // uvm的lt指令: if ((RK(B) <  RK(C)) ~= A) then pc++
+        //    switch (compareType)
+        //    {
+        //        case "gt":
+        //            {
+        //                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_ADD,
+        //            "lt 0 %" + arg1SlotIndex + " %" + arg2SlotIndex +
+        //            commentPrefix, i));
+        //            }
+        //            break;
+        //        case "lt":
+        //            {
+        //                // lt: if ((RK(B) <  RK(C)) ~= A) then pc++
+        //                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_ADD,
+        //                    "lt 0 %" + arg2SlotIndex + " %" + arg1SlotIndex +
+        //                    commentPrefix, i));
+        //            }
+        //            break;
+        //        case "ne":
+        //            {
+        //                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_ADD,
+        //           "eq 1 %" + arg1SlotIndex + " %" + arg2SlotIndex +
+        //           commentPrefix, i));
+        //            }
+        //            break;
+        //        default:
+        //            {
+        //                // eq: if ((RK(B) == RK(C)) ~= A) then pc++
+        //                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_ADD,
+        //                    "eq 0 %" + arg1SlotIndex + " %" + arg2SlotIndex +
+        //                    commentPrefix, i));
+        //            }
+        //            break;
+        //    }
+        //    // 满足条件就执行下下条指令(把1压eval stack栈)，否则执行下条jmp指令(把0压eval stack栈)
+        //    // 构造下条jmp指令和下下条指令
+        //    var jmpLabel1 = proto.Name + "_1_cmp_" + i.Offset;
+        //    var offsetOfInst1 = 2; // 如果比较失败，跳转到把0压eval-stack栈的指令
+        //    jmpLabel1 = proto.InternNeedLocationLabel(offsetOfInst1 + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), jmpLabel1);
+        //    result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_JMP, "jmp 1 $" + jmpLabel1 + commentPrefix,
+        //        i));
+
+        //    var jmpLabel2 = proto.Name + "_2_cmp_" + i.Offset;
+        //    var offsetOfInst2 = 5; // 如果比较成功，跳转到把1压eval-stack栈的指令  
+        //    jmpLabel2 = proto.InternNeedLocationLabel(offsetOfInst2 + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), jmpLabel2);
+        //    result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_JMP, "jmp 1 $" + jmpLabel2 + commentPrefix,
+        //        i));
+
+        //    proto.InternConstantValue(0);
+        //    proto.InternConstantValue(1);
+
+
+        //    // 把结果0存入eval stack
+        //    result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADK,
+        //    "loadk %" + proto.tmp2StackTopSlotIndex + " const 0" + commentPrefix, i));
+        //    PushIntoEvalStackTopSlot(proto, proto.tmp2StackTopSlotIndex, i, result, commentPrefix + " add");
+
+        //    // jmp到压栈第1个分支后面
+        //    var jmpLabel3 = proto.Name + "_3_cmp_" + i.Offset;
+        //    var offsetOfInst3 = 3; // modify
+        //    jmpLabel3 = proto.InternNeedLocationLabel(offsetOfInst3 + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), jmpLabel3);
+        //    result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_JMP, "jmp 1 $" + jmpLabel3 + commentPrefix,
+        //        i));
+
+        //    // 把结果1存入eval stack
+        //    result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADK,
+        //    "loadk %" + proto.tmp3StackTopSlotIndex + " const 1" + commentPrefix, i));
+        //    PushIntoEvalStackTopSlot(proto, proto.tmp3StackTopSlotIndex, i, result, commentPrefix + " cgt");
+
+        //}
+
         private void MakeCompareInstructions(UvmProto proto, string compareType, Instruction i, IList<UvmInstruction> result,
-          string commentPrefix)
+            string commentPrefix)
         {
             // 从eval stack弹出两个值(top和top-1)，比较大小，比较结果存入eval stack
             //result.Add(proto.MakeEmptyInstruction(i.ToString()));
@@ -388,85 +477,54 @@ namespace gsharpc
             // 消耗eval stack的顶部2个值, 然后比较，比较结果存入eval stack
             // 获取eval stack顶部的值
             proto.InternConstantValue(1);
-            var arg1SlotIndex = proto.tmp3StackTopSlotIndex + 1; // top
-            var arg2SlotIndex = proto.tmp3StackTopSlotIndex + 2; // top-1
-            
-            PopFromEvalStackTopSlot(proto, arg1SlotIndex, i, result, commentPrefix);
+            var resultSlotIndex = proto.tmp3StackTopSlotIndex + 1;
+            var arg1SlotIndex = proto.tmp3StackTopSlotIndex + 2; // top-1
+            var arg2SlotIndex = proto.tmp3StackTopSlotIndex + 3; // top
+
+
+            PopFromEvalStackTopSlot(proto, arg2SlotIndex, i, result, commentPrefix);
 
             // 再次获取eval stack栈顶的值
-            PopFromEvalStackTopSlot(proto, arg2SlotIndex, i, result, commentPrefix);
+            PopFromEvalStackTopSlot(proto, arg1SlotIndex, i, result, commentPrefix);
 
             // 比较arg1和arg2
             // uvm的lt指令: if ((RK(B) <  RK(C)) ~= A) then pc++
             switch (compareType)
             {
-                case "gt":
+                case "gt":  
                     {
-                        result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_ADD,
-                    "lt 0 %" + arg1SlotIndex + " %" + arg2SlotIndex +
+                        result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_CMP_GT,
+                    "cmp_gt %" + resultSlotIndex + " %" + arg1SlotIndex + " %" + arg2SlotIndex +
                     commentPrefix, i));
+
                     }
                     break;
                 case "lt":
                     {
-                        // lt: if ((RK(B) <  RK(C)) ~= A) then pc++
-                        result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_ADD,
-                            "lt 0 %" + arg2SlotIndex + " %" + arg1SlotIndex +
-                            commentPrefix, i));
+                        result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_CMP_LT,
+                    "cmp_lt %" + resultSlotIndex + " %" + arg1SlotIndex + " %" + arg2SlotIndex +
+                    commentPrefix, i));
                     }
                     break;
                 case "ne":
                     {
-                        result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_ADD,
-                   "eq 1 %" + arg1SlotIndex + " %" + arg2SlotIndex +
-                   commentPrefix, i));
+                        result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_CMP_NE,
+                    "cmp_ne %" + resultSlotIndex + " %" + arg1SlotIndex + " %" + arg2SlotIndex +
+                    commentPrefix, i));
                     }
                     break;
                 default:
                     {
-                        // eq: if ((RK(B) == RK(C)) ~= A) then pc++
-                        result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_ADD,
-                            "eq 0 %" + arg1SlotIndex + " %" + arg2SlotIndex +
-                            commentPrefix, i));
+                        // eq: 
+                        result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_CMP_EQ,
+                    "cmp_eq %" + resultSlotIndex + " %" + arg1SlotIndex + " %" + arg2SlotIndex +
+                    commentPrefix, i));
                     }
                     break;
-            }
-            // 满足条件就执行下下条指令(把1压eval stack栈)，否则执行下条jmp指令(把0压eval stack栈)
-            // 构造下条jmp指令和下下条指令
-            var jmpLabel1 = proto.Name + "_1_cmp_" + i.Offset;
-            var offsetOfInst1 = 2; // 如果比较失败，跳转到把0压eval-stack栈的指令
-            jmpLabel1 = proto.InternNeedLocationLabel(offsetOfInst1 + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), jmpLabel1);
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_JMP, "jmp 1 $" + jmpLabel1 + commentPrefix,
-                i));
-
-            var jmpLabel2 = proto.Name + "_2_cmp_" + i.Offset;
-            var offsetOfInst2 = 5; // 如果比较成功，跳转到把1压eval-stack栈的指令  
-            jmpLabel2 = proto.InternNeedLocationLabel(offsetOfInst2 + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), jmpLabel2);
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_JMP, "jmp 1 $" + jmpLabel2 + commentPrefix,
-                i));
-
-            proto.InternConstantValue(0);
-            proto.InternConstantValue(1);
-
-
-            // 把结果0存入eval stack
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADK,
-            "loadk %" + proto.tmp2StackTopSlotIndex + " const 0" + commentPrefix, i));
-            PushIntoEvalStackTopSlot(proto, proto.tmp2StackTopSlotIndex, i, result, commentPrefix + " add");
-
-            // jmp到压栈第1个分支后面
-            var jmpLabel3 = proto.Name + "_3_cmp_" + i.Offset;
-            var offsetOfInst3 = 3; // modify
-            jmpLabel3 = proto.InternNeedLocationLabel(offsetOfInst3 + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), jmpLabel3);
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_JMP, "jmp 1 $" + jmpLabel3 + commentPrefix,
-                i));
-
-            // 把结果1存入eval stack
-            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADK,
-            "loadk %" + proto.tmp3StackTopSlotIndex + " const 1" + commentPrefix, i));
-            PushIntoEvalStackTopSlot(proto, proto.tmp3StackTopSlotIndex, i, result, commentPrefix + " cgt");
-
+            }  
+            PushIntoEvalStackTopSlot(proto, resultSlotIndex, i, result, commentPrefix );
         }
+
 
         /**
          * 读取并弹出eval stack top-1(table)和top(value)值，top值弹出, 执行table写属性操作，然后table压栈回到eval-stack ???? 弹出2个不需要压回

@@ -133,7 +133,7 @@ namespace gsharpc
             builder.Append(".begin_upvalue\r\n");
             foreach (var upvalue in Upvalues)
             {
-                builder.Append("\t" + (upvalue.Instack ? 1 : 0) + " " + upvalue.Idx + "\r\n");
+                builder.Append("\t" + (upvalue.Instack ? 1 : 0) + " " + upvalue.Idx + " \"" + upvalue.Name + "\"" + "\r\n");
             }
             builder.Append(".end_upvalue\r\n");
 
