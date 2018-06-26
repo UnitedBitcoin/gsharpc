@@ -554,7 +554,7 @@ namespace gsharpc
             result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADK,
               "loadk %" + proto.tmp2StackTopSlotIndex + " const \"" + propName + "\"" + commentPrefix, i));
             result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_SETTABLE,
-              "settable %" + tableSlot + " % " + proto.tmp2StackTopSlotIndex + " %" + valueSlot + commentPrefix, i));
+              "settable %" + tableSlot + " %" + proto.tmp2StackTopSlotIndex + " %" + valueSlot + commentPrefix, i));
 
         }
 
@@ -575,7 +575,7 @@ namespace gsharpc
             result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADK,
               "loadk %" + proto.tmp2StackTopSlotIndex + " const \"" + propName + "\"" + commentPrefix, i));
             result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETTABLE,
-              "gettable %" + valueSlot + " % " + tableSlot + " %" + proto.tmp2StackTopSlotIndex + commentPrefix, i));
+              "gettable %" + valueSlot + " %" + tableSlot + " %" + proto.tmp2StackTopSlotIndex + commentPrefix, i));
 
             // 对于布尔类型，因为.net中布尔类型参数加载的时候用的ldc.i，加载的是整数，所以这里要进行类型转换成bool类型，使用 not not a来转换
             if (needConvtToBool)
