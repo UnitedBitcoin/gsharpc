@@ -25,7 +25,7 @@ A compiler using to compile .Net bytecode(.dll) to uvm/lua bytecode
 # Build
 
 * install .netcore 2.1+
-* `dotnet build -r win10-x64` or `dotnet build -r ubuntu16.10-x64`
+* `dotnet build -r win10-x64` or `dotnet build -r ubuntu16.10-x64` or `dotnet build -r osx.10.11-x64`
 
 # Publish
-* `dotnet publish -r win10-x64` or `dotnet publish -r ubuntu16.10-x64`
+* `dotnet publish -r win10-x64` or `dotnet publish -r ubuntu16.10-x64` or `dotnet publish -r osx.10.11-x64`
