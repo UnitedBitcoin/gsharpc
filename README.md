@@ -1,16 +1,27 @@
-gsharpc
+﻿gsharpc
 =============
 
-C#/.Net compiler for uvm
+A compiler using to compile .Net bytecode(.dll) to uvm/lua bytecode
 
-# Dependencies
+# Features
 
-* .Net Framework 4.5+(not test on .Net Core 2.0 yet)
-* only Windows supported now
+* Many core .Net features/C# syntax support
+* base types, user defined C# types, Map, Array, etc. types support
+* operators, control flows(if, for, while, break, continue, etc.)
+* function call, function define, function return, function parameters
+* interate Array and Map
+* etc.
+
 
 # Usage
 
-* compile the gsharpc project and generate gshaprc.exe
-* put `gsharp.exe`, `uvm_ass.exe` and `package_gpc.exe` in same directory
-* `gsharpc --gpc path-to-contract-project-dll-file` to generate contract file(*.gpc)
-* now you can use *.gpc file to register contract in the blockchain
+* use csc.exe to compile C# file to .dll file(.Net bytecode file)
+* use this program to compile .dll file to xxxx.uvms file, xxxx.uvms is the output uvm assembler file
+* `gsharpc xxxx.dll` to compile .net .dll file to uvm bytecode
+* `uvm xxxx.out` to run compiled bytecode file
+* `package_gpc xxxx.out xxxx.meta.json` to package the bytecode and meta info file to .gpc file
+* you can also use `gsharpc --gpc xxxx.dll` to directly compile .net .dll file to .gpc file
+
+# Build
+
+* `dotnet build -r win10-x64` or `dotnet build -r ubuntu16.10-x64`
