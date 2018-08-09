@@ -114,11 +114,14 @@ namespace UvmCoreLib
         {
             Console.WriteLine(tojsonstring(obj));
         }
-        public static int? tointeger(object obj)
+
+
+        public static int tointeger(object obj)
         {
             if (obj == null)
             {
-                return null;
+                Console.WriteLine("tointeger error ");
+                return 0;
             }
             if (obj is int)
             {
@@ -127,15 +130,18 @@ namespace UvmCoreLib
             int result = 0;
             if (!int.TryParse(obj.ToString(), out result))
             {
-                return null;
+                Console.WriteLine("tointeger error ");
+                return 0;
             }
             return result;
         }
-        public static float? tonumber(object obj)
+
+        public static float tonumber(object obj)
         {
             if (obj == null)
             {
-                return null;
+                Console.WriteLine("tonumber error ");
+                return 0.0F;
             }
             if (obj is float)
             {
@@ -144,7 +150,8 @@ namespace UvmCoreLib
             float result = 0;
             if (!float.TryParse(obj.ToString(), out result))
             {
-                return null;
+                Console.WriteLine("tonumber error ");
+                return 0.0F;
             }
             return result;
         }
