@@ -154,7 +154,7 @@ namespace gsharpc
                 uvmAsmBuilder.Append(proto.ToUvmAss(false));
             }
 
-          
+
         }
 
         private UvmProto TranslateILType(TypeDefinition typeDefinition, StringBuilder ilContentBuilder,
@@ -379,7 +379,7 @@ namespace gsharpc
             PushIntoEvalStackTopSlot(proto, proto.tmp2StackTopSlotIndex, i, result, commentPrefix + " add");
         }
 
-        //private void MakeCompareInstructions22(UvmProto proto, string compareType, Instruction i, IList<UvmInstruction> result,
+        //private void MakeCompareInstructions(UvmProto proto, string compareType, Instruction i, IList<UvmInstruction> result,
         //  string commentPrefix)
         //{
         //    // 从eval stack弹出两个值(top和top-1)，比较大小，比较结果存入eval stack
@@ -390,7 +390,7 @@ namespace gsharpc
         //    proto.InternConstantValue(1);
         //    var arg1SlotIndex = proto.tmp3StackTopSlotIndex + 1; // top
         //    var arg2SlotIndex = proto.tmp3StackTopSlotIndex + 2; // top-1
-            
+
         //    PopFromEvalStackTopSlot(proto, arg1SlotIndex, i, result, commentPrefix);
 
         //    // 再次获取eval stack栈顶的值
@@ -491,7 +491,7 @@ namespace gsharpc
             // uvm的lt指令: if ((RK(B) <  RK(C)) ~= A) then pc++
             switch (compareType)
             {
-                case "gt":  
+                case "gt":
                     {
                         result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_CMP_GT,
                     "cmp_gt %" + resultSlotIndex + " %" + arg1SlotIndex + " %" + arg2SlotIndex +
@@ -521,8 +521,8 @@ namespace gsharpc
                     commentPrefix, i));
                     }
                     break;
-            }  
-            PushIntoEvalStackTopSlot(proto, resultSlotIndex, i, result, commentPrefix );
+            }
+            PushIntoEvalStackTopSlot(proto, resultSlotIndex, i, result, commentPrefix);
         }
 
 
@@ -1078,6 +1078,15 @@ namespace gsharpc
                             needPopFirstArg = true;
                             hasThis = false;
                         }
+                        else if (calledTypeName == typeof(UvmCoreLib.UvmSafeMathModule).FullName)
+                        {
+                            // 调用safemath模块的方法  
+                            targetFuncName = UvmCoreLib.UvmSafeMathModule.libContent[methodName];
+                            isUserDefineFunc = true;
+                            isUserDefinedInTableFunc = true;
+                            needPopFirstArg = true;
+                            hasThis = false;
+                        }
                         else if (calledTypeName == typeof(UvmCoreLib.UvmTimeModule).FullName)
                         {
                             // 调用time模块的方法  
@@ -1202,7 +1211,7 @@ namespace gsharpc
                                 var globalPropName = "caller";
                                 result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETTABUP,
                                   "gettabup %" + proto.tmp1StackTopSlotIndex + " @" + envIndex + " const \"" + globalPropName + "\"" + commentPrefix, i));
-                                PushIntoEvalStackTopSlot(proto, proto.tmp1StackTopSlotIndex, i, result, commentPrefix );
+                                PushIntoEvalStackTopSlot(proto, proto.tmp1StackTopSlotIndex, i, result, commentPrefix);
                                 return result;
                             }
                             else if (methodName == "caller_address")
@@ -1212,8 +1221,8 @@ namespace gsharpc
                                 var globalPropName = "caller_address";
                                 result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETTABUP,
                                   "gettabup %" + proto.tmp1StackTopSlotIndex + " @" + envIndex + " const \"" + globalPropName + "\"" + commentPrefix, i));
-                               
-                                PushIntoEvalStackTopSlot(proto, proto.tmp1StackTopSlotIndex, i, result, commentPrefix );
+
+                                PushIntoEvalStackTopSlot(proto, proto.tmp1StackTopSlotIndex, i, result, commentPrefix);
 
                                 return result;
                             }
@@ -1319,9 +1328,9 @@ namespace gsharpc
                                 paramsCount++;
                                 // 弹出eventArg，压入eventName，然后压回eventArg
                                 PopFromEvalStackTopSlot(proto, proto.tmp2StackTopSlotIndex, i, result, commentPrefix);
-                                MakeLoadConstInst(proto, i, result, proto.tmp1StackTopSlotIndex, eventName, commentPrefix);                              
-                                PushIntoEvalStackTopSlot(proto, proto.tmp1StackTopSlotIndex, i, result, commentPrefix );
-                                PushIntoEvalStackTopSlot(proto, proto.tmp2StackTopSlotIndex, i, result, commentPrefix );
+                                MakeLoadConstInst(proto, i, result, proto.tmp1StackTopSlotIndex, eventName, commentPrefix);
+                                PushIntoEvalStackTopSlot(proto, proto.tmp1StackTopSlotIndex, i, result, commentPrefix);
+                                PushIntoEvalStackTopSlot(proto, proto.tmp2StackTopSlotIndex, i, result, commentPrefix);
                             }
                             else
                             {
@@ -2583,7 +2592,7 @@ namespace gsharpc
                             delIndexes.Add(gIndex);
                             modifyIndexes.Add(gIndex+1);
                             modifyUvmIns.Add(inst);
-                            Console.Write("find push-pop evaltop group, index " + gIndex + "," + (gIndex+1) + "\n");
+                            //Console.Write("find push-pop evaltop group, index " + gIndex + "," + (gIndex+1) + "\n");
                         }
                     }
                 }

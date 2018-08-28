@@ -48,6 +48,7 @@
     <Compile Include="UvmCoreFuncs.cs" />
     <Compile Include="UvmJsonModule.cs" />
     <Compile Include="UvmMathModule.cs" />
+    <Compile Include="UvmSafeMathModule.cs" />
     <Compile Include="UvmStringModule.cs" />
     <Compile Include="UvmTable.cs" />
     <Compile Include="UvmTableModule.cs" />

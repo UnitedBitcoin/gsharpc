@@ -116,22 +116,20 @@ namespace UvmCoreLib
         }
 
 
-        public static int tointeger(object obj)
+        public static long tointeger(object obj)
         {
             if (obj == null)
             {
-                Console.WriteLine("tointeger error ");
-                return 0;
+                Error("tointeger error ");
             }
-            if (obj is int)
+            if ((obj is long)|| (obj is int))
             {
-                return (int)obj;
+                return (long)obj;
             }
-            int result = 0;
-            if (!int.TryParse(obj.ToString(), out result))
+            long result = 0;
+            if (!long.TryParse(obj.ToString(), out result))
             {
-                Console.WriteLine("tointeger error ");
-                return 0;
+                Error("tointeger error ");
             }
             return result;
         }
@@ -462,6 +460,19 @@ namespace UvmCoreLib
         {
             return _system_asset_precision_for_mock;
         }
+
+
+        public static object fast_map_get(string storagename,string key)
+        {   
+            return new object();
+        }
+
+
+        public static void fast_map_set(string storagename, string key,object value)
+        {
+            
+        }
+
 
     }
 }
