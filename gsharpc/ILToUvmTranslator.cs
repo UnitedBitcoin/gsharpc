@@ -136,36 +136,128 @@ namespace gsharpc
                     }
                 }
             }
-            UvmProto mainProto = null;
-            foreach (var typeDefinition in MainTypes)
+
+
+            //UvmProto mainProto = null;
+            //foreach (var typeDefinition in MainTypes)
+            //{
+            //    if (typeDefinition.FullName.Equals("<Module>"))
+            //    {
+            //        continue;
+            //    }
+            //    var proto = TranslateILType(typeDefinition, ilContentBuilder, uvmAsmBuilder, null);
+            //    uvmAsmBuilder.Append(proto.ToUvmAss(true));
+            //    mainProto = proto;
+            //}
+
+            //// TODO: 考虑把所有proto放到一个级别，放在main下面，统一通过upval或者getuptab访问
+            //if (this.ContractType != null)
+            //{
+            //    var proto = TranslateILType(this.ContractType, ilContentBuilder, uvmAsmBuilder, mainProto.FindMainProto());
+            //    uvmAsmBuilder.Append(proto.ToUvmAss(false));
+            //}
+
+            //utils 
+            var utilComponentTypes = (from t in module.Types where TranslatorUtils.IsComponentType(t) select t).ToList();
+
+            UvmProto topProto = TranslateTopILType(MainTypes[0], ilContentBuilder, uvmAsmBuilder, utilComponentTypes, this.ContractType);
+            uvmAsmBuilder.Append(topProto.ToUvmAss(true));
+
+        }
+
+        private UvmProto TranslateTopILType(TypeDefinition topType, StringBuilder ilContentBuilder,
+                         StringBuilder uvmAsmBuilder, List<TypeDefinition> utilTypes, TypeDefinition contractType)
+        {
+            if (topType == null || contractType == null)
             {
-                if (typeDefinition.FullName.Equals("<Module>"))
+                throw new Exception("topType null or contractType null");
+            }
+            var proto = new UvmProto(TranslatorUtils.MakeProtoNameOfTypeConstructor(topType)); //合约内main方法所属的class作为整个合约的mainproto
+            proto.InternUpvalue("ENV");
+            UvmProto topProto = proto;
+
+            UvmProto codeMainProto = null;  //合约内的main方法
+            var tableSlot = 0;
+            var tempslot = utilTypes.Count + 1;
+            topProto.AddInstructionLine(UvmOpCodeEnums.OP_NEWTABLE, "newtable %" + tableSlot + " 0 0", null);
+            foreach (var utilType in utilTypes)
+            {
+                //utilProto直属于mainProto
+                var utilProto = TranslateILType(utilType, ilContentBuilder, uvmAsmBuilder, topProto);
+                //utilProto.parent = mainProto
+                // 将utilProto在mainProto里closure化，作为mainProto的一个locvar，之后contractProto里可通过upval方式访问到
+                topProto.InternConstantValue(utilProto.Name);
+                var slotIndex = topProto.SubProtos.Count + 1;
+                topProto.AddInstructionLine(UvmOpCodeEnums.OP_CLOSURE, "closure %" + tempslot + " " + utilProto.Name, null);
+                topProto.AddInstructionLine(UvmOpCodeEnums.OP_CALL, "call %" + tempslot + " " + (1) + " " + (2), null);
+                topProto.AddInstructionLine(UvmOpCodeEnums.OP_MOVE, "move %" + slotIndex + " %" + tempslot, null);
+                var subProtoName = utilProto.Name;
+
+                topProto.Locvars.Add(new UvmLocVar() { Name = subProtoName, SlotIndex = slotIndex });
+                topProto.SubProtos.Add(utilProto);
+            }
+            /* top proto*/
+            var mainFullName = "";
+            var tmp1Slot = topType.Methods.Count + topProto.SubProtos.Count + 1;
+            foreach (var m in topType.Methods)
+            {
+                var methodProto = TranslateILMethod(m, ilContentBuilder, uvmAsmBuilder, topProto);
+                if (methodProto == null)
                 {
                     continue;
                 }
-                var proto = TranslateILType(typeDefinition, ilContentBuilder, uvmAsmBuilder, true, null);
-                uvmAsmBuilder.Append(proto.ToUvmAss(true));
-                mainProto = proto;
-            }
-            // TODO: 考虑把所有proto放到一个级别，放在main下面，统一通过upval或者getuptab访问
-            if (this.ContractType != null)
-            {
-                var proto = TranslateILType(this.ContractType, ilContentBuilder, uvmAsmBuilder, false, mainProto.FindMainProto());
-                uvmAsmBuilder.Append(proto.ToUvmAss(false));
-            }
+                // 把各成员函数加入slots
+                topProto.InternConstantValue(methodProto.Name);
+                var slotIndex = topProto.SubProtos.Count + 1;
+                topProto.AddInstructionLine(UvmOpCodeEnums.OP_CLOSURE, "closure %" + slotIndex + " " + methodProto.Name, null);
+                topProto.InternConstantValue(m.Name);
+                topProto.AddInstructionLine(UvmOpCodeEnums.OP_LOADK, "loadk %" + tmp1Slot + " const \"" + m.Name + "\"", null);
+                topProto.AddInstructionLine(UvmOpCodeEnums.OP_SETTABLE,
+                        "settable %" + tableSlot + " %" + tmp1Slot + " %" + slotIndex, null);
+                var methodProtoName = methodProto.Name;
+                if (methodProtoName == null)
+                {
+                    throw new Exception("null method proto name");
+                }
 
+                if (m.Name == "Main")
+                {
+                    mainFullName = methodProtoName;
+                    codeMainProto = methodProto;
+                }
+
+                topProto.Locvars.Add(new UvmLocVar() { Name = methodProtoName, SlotIndex = slotIndex });
+                topProto.SubProtos.Add(methodProto);
+            }
+            topProto.MaxStackSize = tmp1Slot + 4;
+            var mainFuncSlot = topProto.SubProtos.Count + 2; // proto.SubProtos.IndexOf(mainProto) + 1;
+            topProto.AddInstructionLine(UvmOpCodeEnums.OP_LOADK, "loadk %" + (mainFuncSlot + 1) + " const \"Main\"", null);
+            topProto.AddInstructionLine(UvmOpCodeEnums.OP_GETTABLE, "gettable %" + mainFuncSlot + " %0 %" + (mainFuncSlot + 1), null);
+            topProto.AddInstructionLine(UvmOpCodeEnums.OP_MOVE, "move %" + (mainFuncSlot + 1) + " %0", null);
+            var returnCount = 1;
+            var argsCount = 1;
+            topProto.AddInstructionLine(UvmOpCodeEnums.OP_CALL, "call %" + mainFuncSlot + " " + (argsCount + 1) + " " + (returnCount + 1), null);
+            ;
+            topProto.AddInstructionLine(UvmOpCodeEnums.OP_RETURN, "return %" + mainFuncSlot + " " + (returnCount + 1), null);
+            topProto.AddInstructionLine(UvmOpCodeEnums.OP_RETURN, "return %0 1", null);
+            /**/
+
+            UvmProto contractProto = null;
+            if (contractType != null)
+            {
+                contractProto = TranslateILType(contractType, ilContentBuilder, uvmAsmBuilder, codeMainProto);
+                codeMainProto.SubProtos.Add(contractProto); //合约class的proto从属于main函数的proto
+            }
+            return topProto;
 
         }
 
         private UvmProto TranslateILType(TypeDefinition typeDefinition, StringBuilder ilContentBuilder,
-          StringBuilder uvmAsmBuilder, bool isMainType, UvmProto parentProto)
+          StringBuilder uvmAsmBuilder, UvmProto parentProto)
         {
             var proto = new UvmProto(TranslatorUtils.MakeProtoNameOfTypeConstructor(typeDefinition));
             proto.Parent = parentProto;
-            if (parentProto != null)
-            {
-                parentProto.SubProtos.Add(proto);
-            }
+
             // 把类型转换成的proto被做成有一些slot指向成员函数的构造函数，保留slot指向成员函数是为了方便子对象upval访问(不一定需要)
             var tableSlot = 0;
             proto.AddInstructionLine(UvmOpCodeEnums.OP_NEWTABLE, "newtable %" + tableSlot + " 0 0", null);
@@ -188,34 +280,17 @@ namespace gsharpc
                 proto.AddInstructionLine(UvmOpCodeEnums.OP_LOADK, "loadk %" + tmp1Slot + " const \"" + m.Name + "\"", null);
                 proto.AddInstructionLine(UvmOpCodeEnums.OP_SETTABLE,
                   "settable %" + tableSlot + " %" + tmp1Slot + " %" + slotIndex, null);
-                proto.Locvars.Add(new UvmLocVar() { Name = methodProto.Name, SlotIndex = slotIndex }); 
+                proto.Locvars.Add(new UvmLocVar() { Name = methodProto.Name, SlotIndex = slotIndex });
                 proto.SubProtos.Add(methodProto);
             }
 
             // TODO: 顶层构造函数proto，考虑设置成员函数并且有返回值
             proto.MaxStackSize = tmp1Slot + 1;
             var mainProto = proto.FindMainProto();
-            if (mainProto != null && isMainType)
-            {
-                // TODO: 可能需要Main类中返回合约, 目前返回有问题
-                proto.MaxStackSize = tmp1Slot + 4;
-                var mainFuncSlot = proto.SubProtos.Count + 2; // proto.SubProtos.IndexOf(mainProto) + 1;
-                proto.AddInstructionLine(UvmOpCodeEnums.OP_CLOSURE, "closure %" + mainFuncSlot + " " + mainProto.Name, null);
-                proto.AddInstructionLine(UvmOpCodeEnums.OP_MOVE, "move %" + (mainFuncSlot + 1) + " %0", null);
-                var returnCount = (mainProto.method.ReturnType.FullName != typeof(void).FullName) ? 1 : 0;
-                var argsCount = 1;
-                proto.AddInstructionLine(UvmOpCodeEnums.OP_CALL, "call %" + mainFuncSlot + " " + (argsCount + 1) + " " + (returnCount + 1), null);
-                if (returnCount > 0)
-                {
-                    proto.AddInstructionLine(UvmOpCodeEnums.OP_RETURN, "return %" + mainFuncSlot + " " + (returnCount + 1), null);
-                }
-                proto.AddInstructionLine(UvmOpCodeEnums.OP_RETURN, "return %0 1", null);
-            }
-            else
-            {
-                proto.AddInstructionLine(UvmOpCodeEnums.OP_RETURN, "return %" + tableSlot + " 2", null); // 构造函数的返回值
-                proto.AddInstructionLine(UvmOpCodeEnums.OP_RETURN, "return %0 1", null);
-            }
+
+            proto.AddInstructionLine(UvmOpCodeEnums.OP_RETURN, "return %" + tableSlot + " 2", null); // 构造函数的返回值
+            proto.AddInstructionLine(UvmOpCodeEnums.OP_RETURN, "return %0 1", null);
+
 
             return proto;
         }
@@ -231,7 +306,7 @@ namespace gsharpc
         }
 
         private void MakeJmpToInstruction(UvmProto proto, Instruction i, string opName,
-            Instruction toJmpToInst, IList<UvmInstruction> result, string commentPrefix, bool onlyNeedResultCount)
+            Instruction toJmpToInst, IList<UvmInstruction> result, string commentPrefix, bool onlyNeedResultCount,bool needTranslateResult2Boolean)
         {
             // 满足条件，跳转到目标指令
             // 在要跳转的目标指令的前面增加 label:
@@ -265,7 +340,7 @@ namespace gsharpc
                     var oldNotAffectMode = proto.InNotAffectMode;
                     proto.InNotAffectMode = true;
                     var uvmInsts = TranslateILInstruction(proto, proto.method.Body.Instructions[j],
-                        "", true); // 因为可能有嵌套情况，这里只需要获取准确的指令数量不需要准确的指令内容
+                        "", true, needTranslateResult2Boolean); // 因为可能有嵌套情况，这里只需要获取准确的指令数量不需要准确的指令内容
                     proto.InNotAffectMode = oldNotAffectMode;
                     var notEmptyUvmInstsCount = uvmInsts.Count((UvmInstruction uvmInst) =>
                     {
@@ -322,8 +397,8 @@ namespace gsharpc
         private void PushIntoEvalStackTopSlot(UvmProto proto, int slotIndex, Instruction i, IList<UvmInstruction> result,
           string commentPrefix)
         {
-           UvmInstruction inst = proto.MakeInstructionLine(UvmOpCodeEnums.OP_PUSH, "push %" + slotIndex + commentPrefix, i);
-           result.Add(inst);
+            UvmInstruction inst = proto.MakeInstructionLine(UvmOpCodeEnums.OP_PUSH, "push %" + slotIndex + commentPrefix, i);
+            result.Add(inst);
         }
 
 
@@ -545,7 +620,7 @@ namespace gsharpc
                 result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + valueSlot + " %" + valueSlot + commentPrefix, i));
                 result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + valueSlot + " %" + valueSlot + commentPrefix, i));
             }
-      
+
 
             // 加载table    
             PopFromEvalStackTopSlot(proto, tableSlot, i, result, commentPrefix);
@@ -585,7 +660,7 @@ namespace gsharpc
             }
             proto.InternConstantValue(1);
             // value放回eval stack                                                                      
-            PushIntoEvalStackTopSlot(proto, valueSlot, i, result, commentPrefix );
+            PushIntoEvalStackTopSlot(proto, valueSlot, i, result, commentPrefix);
         }
 
         /**
@@ -597,7 +672,7 @@ namespace gsharpc
             //result.Add(proto.MakeEmptyInstruction(i.ToString()));
             proto.InternConstantValue(1);
             var arg1SlotIndex = proto.tmp3StackTopSlotIndex + 1; // top
-           
+
             PopFromEvalStackTopSlot(proto, arg1SlotIndex, i, result, commentPrefix);
 
             // 执行算术操作符，结果存入tmp2
@@ -630,7 +705,7 @@ namespace gsharpc
             }
 
             // 把add结果存入eval stack
-            PushIntoEvalStackTopSlot(proto, proto.tmp2StackTopSlotIndex, i, result, commentPrefix+" add");
+            PushIntoEvalStackTopSlot(proto, proto.tmp2StackTopSlotIndex, i, result, commentPrefix + " add");
         }
 
         private void MakeGetTopOfEvalStackInst(UvmProto proto, Instruction i, IList<UvmInstruction> result,
@@ -684,7 +759,7 @@ namespace gsharpc
               "loadk %" + targetSlot + " const " + (value is string ? ("\"" + value + "\"") : value) + commentPrefix, i));
         }
 
-        private IList<UvmInstruction> TranslateILInstruction(UvmProto proto, Instruction i, string commentPrefix, bool onlyNeedResultCount)
+        private IList<UvmInstruction> TranslateILInstruction(UvmProto proto, Instruction i, string commentPrefix, bool onlyNeedResultCount,bool needTranslateResult2Boolean)
         {
             var result = new List<UvmInstruction>();
             switch (i.OpCode.Code)
@@ -855,17 +930,18 @@ namespace gsharpc
                         // 加载null到eval stack
                         // 加载nil
                         MakeLoadNilInst(proto, i, result, proto.tmp1StackTopSlotIndex, commentPrefix);
-                        PushIntoEvalStackTopSlot(proto, proto.tmp1StackTopSlotIndex, i, result, commentPrefix + " lnull" );
+                        PushIntoEvalStackTopSlot(proto, proto.tmp1StackTopSlotIndex, i, result, commentPrefix + " lnull");
                     }
                     break;
                 case Code.Ldstr:
                     {
                         // 加载字符串常量到eval stack
                         var constValue = i.Operand.ToString();
-                        var literalValueInUvms = TranslatorUtils.Escape(constValue);
-                        var valueIdx = proto.InternConstantValue(literalValueInUvms);
-
-                        PushStrIntoEvalStackTopSlot(proto, literalValueInUvms, i, result, commentPrefix + " ldstr " );
+                        //var literalValueInUvms = TranslatorUtils.Escape(constValue);
+                        //var valueIdx = proto.InternConstantValue(literalValueInUvms);
+                        MakeLoadConstInst(proto,i,result, proto.tmp1StackTopSlotIndex, constValue, commentPrefix + " Ldstr");
+                        PushIntoEvalStackTopSlot(proto, proto.tmp1StackTopSlotIndex, i, result, commentPrefix + " Ldstr");
+                        //PushStrIntoEvalStackTopSlot(proto, literalValueInUvms, i, result, commentPrefix + " ldstr ");
 
                     }
                     break;
@@ -996,6 +1072,11 @@ namespace gsharpc
                         var paramsCount = methodParams.Count;
                         var hasThis = operand.HasThis;
                         var hasReturn = operand.ReturnType.FullName != "System.Void";
+                        var resultBool2IntValue = false;
+                        if (hasReturn && calledMethod.ReturnType.FullName == "System.Boolean")
+                        {
+                            resultBool2IntValue = true;
+                        }
                         var needPopFirstArg = false; // 一些函数，比如import module的函数，因为用object成员函数模拟，而在uvm中是table中属性的函数，所以.net中多传了个this对象
                         var returnCount = hasReturn ? 1 : 0;
                         var isUserDefineFunc = false; // 如果是本类中要生成uvm字节码的方法，这里标记为true
@@ -1056,7 +1137,7 @@ namespace gsharpc
                             // 调用string模块的方法  
                             targetFuncName = UvmCoreLib.UvmStringModule.libContent[methodName];
                             isUserDefineFunc = true;
-                            isUserDefinedInTableFunc = true;
+                            //isUserDefinedInTableFunc = true;
                             needPopFirstArg = true;
                             hasThis = false;
                         }
@@ -1065,7 +1146,7 @@ namespace gsharpc
                             // 调用table模块的方法  
                             targetFuncName = UvmCoreLib.UvmTableModule.libContent[methodName];
                             isUserDefineFunc = true;
-                            isUserDefinedInTableFunc = true;
+                            //isUserDefinedInTableFunc = true;
                             needPopFirstArg = true;
                             hasThis = false;
                         }
@@ -1074,7 +1155,7 @@ namespace gsharpc
                             // 调用math模块的方法  
                             targetFuncName = UvmCoreLib.UvmMathModule.libContent[methodName];
                             isUserDefineFunc = true;
-                            isUserDefinedInTableFunc = true;
+                            //isUserDefinedInTableFunc = true;
                             needPopFirstArg = true;
                             hasThis = false;
                         }
@@ -1083,7 +1164,7 @@ namespace gsharpc
                             // 调用safemath模块的方法  
                             targetFuncName = UvmCoreLib.UvmSafeMathModule.libContent[methodName];
                             isUserDefineFunc = true;
-                            isUserDefinedInTableFunc = true;
+                            //isUserDefinedInTableFunc = true;
                             needPopFirstArg = true;
                             hasThis = false;
                         }
@@ -1092,7 +1173,7 @@ namespace gsharpc
                             // 调用time模块的方法  
                             targetFuncName = UvmCoreLib.UvmTimeModule.libContent[methodName];
                             isUserDefineFunc = true;
-                            isUserDefinedInTableFunc = true;
+                            //isUserDefinedInTableFunc = true;
                             needPopFirstArg = true;
                             hasThis = false;
                         }
@@ -1101,7 +1182,7 @@ namespace gsharpc
                             // 调用json模块的方法  
                             targetFuncName = UvmCoreLib.UvmJsonModule.libContent[methodName];
                             isUserDefineFunc = true;
-                            isUserDefinedInTableFunc = true;
+                            //isUserDefinedInTableFunc = true;
                             needPopFirstArg = true;
                             hasThis = false;
                         }
@@ -1110,7 +1191,7 @@ namespace gsharpc
                             // 调用本类型的方法
                             isUserDefineFunc = true;
                             targetFuncName = methodName;
-                            isUserDefinedInTableFunc = false;
+                            //isUserDefinedInTableFunc = false;
                         }
                         else if (calledTypeName == typeof(UvmCoreLib.UvmCoreFuncs).FullName)
                         {
@@ -1193,6 +1274,10 @@ namespace gsharpc
                             else if (methodName == "importContract")
                             {
                                 targetFuncName = "import_contract";
+                            }
+                            else if (methodName == "importContractFromAddress")
+                            {
+                                targetFuncName = "import_contract_from_address";
                             }
                             //else if (methodName == "Debug")
                             //{
@@ -1335,8 +1420,40 @@ namespace gsharpc
                             else
                             {
                                 throw new Exception("不支持调用方法" + calledType + "::" + methodName);
+
                             }
                         }
+                        else if (calledType.IsDefinition && TranslatorUtils.IsComponentType(calledType as TypeDefinition) && targetFuncName.Length < 1)
+                        { //调用工具类
+
+
+                            var protoMethodClassName = proto.method.DeclaringType.FullName;
+                            if (calledTypeName.Equals(protoMethodClassName))
+                            {  //工具类function调用本工具类function,通过从自己table中获取
+                                isUserDefineFunc = true;
+                                targetFuncName = methodName;
+                                isUserDefinedInTableFunc = false;  //调用工具类
+                                needPopFirstArg = false;
+                            }
+                            else if (protoMethodClassName.Equals(this.ContractType.Name))
+                            { //合约function调用工具类,通过gettabup来取
+                                isUserDefineFunc = true;
+                                targetFuncName = methodName;
+                                isUserDefinedInTableFunc = true; //调用工具类
+                                needPopFirstArg = false;
+                            }
+                            else
+                            { //工具类调用其他工具类 ....通过gettabup来取
+                                isUserDefineFunc = true;
+                                targetFuncName = methodName;
+                                isUserDefinedInTableFunc = true; //调用工具类
+                                needPopFirstArg = false;
+                            }
+                        }
+
+
+
+
                         var preAddParamsCount = 0; // 前置额外增加的参数，比如this
                         if (hasThis)
                         {
@@ -1344,35 +1461,41 @@ namespace gsharpc
                             preAddParamsCount = 1;
                         }
 
-                        // 如果methodName是set_XXXX或者get_XXXX，则是C#的属性操作，转换成uvm的table属性读写操作
-                        if (hasThis && methodName.StartsWith("set_") && methodName.Length > 4 && methodParams.Count == 1
-                          && (targetFuncName == null || targetFuncName == ""))
-                        {
-                            // set_XXXX，属性写操作
-                            var needConvtToBool = methodParams[0].ParameterType.FullName == "System.Boolean";
 
-                            var propName = methodName.Substring(4);
-                            MakeSetTablePropInstructions(proto, propName, i, result, commentPrefix, needConvtToBool);
-                            break;
-                        }
-                        else if (hasThis && methodName.StartsWith("get_") && methodName.Length > 4
-                          && methodParams.Count == 0 && returnCount == 1
-                          && (targetFuncName == null || targetFuncName == ""))
+                        if (!(calledType is TypeDefinition) || !TranslatorUtils.IsComponentType(calledType as TypeDefinition))
                         {
-                            // get_XXXX, table属性读操作
-                            var propName = methodName.Substring(4);
-                            var needConvtToBool = returnCount == 1 && operand.ReturnType.FullName == "System.Boolean";
-                            MakeGetTablePropInstructions(proto, propName, i, result, commentPrefix, needConvtToBool);
-                            break;
+                            // 如果methodName是set_XXXX或者get_XXXX，则是C#的属性操作，转换成uvm的table属性读写操作
+                            if (hasThis && methodName.StartsWith("set_") && methodName.Length > 4 && methodParams.Count == 1
+                              && (targetFuncName == null || targetFuncName == ""))
+                            {
+                                // set_XXXX，属性写操作
+                                var needConvtToBool = methodParams[0].ParameterType.FullName == "System.Boolean";
+
+                                var propName = methodName.Substring(4);
+                                MakeSetTablePropInstructions(proto, propName, i, result, commentPrefix, needConvtToBool);
+                                break;
+                            }
+                            else if (hasThis && methodName.StartsWith("get_") && methodName.Length > 4
+                              && methodParams.Count == 0 && returnCount == 1
+                              && (targetFuncName == null || targetFuncName == ""))
+                            {
+                                // get_XXXX, table属性读操作
+                                var propName = methodName.Substring(4);
+                                var needConvtToBool = returnCount == 1 && operand.ReturnType.FullName == "System.Boolean";
+                                MakeGetTablePropInstructions(proto, propName, i, result, commentPrefix, needConvtToBool);
+                                break;
+                            }
+
                         }
-                        else if (calledTypeName != proto.method.DeclaringType.FullName && (targetFuncName == null || targetFuncName.Length < 1))
+
+                        if (targetFuncName.Length < 1 && calledTypeName.EndsWith("MultiOwnedContractSimpleClass")) //test other contract
                         {
-                            // 调用其他类的方法
+                            //通过interface 调用其他合约方法
                             isUserDefineFunc = true;
                             targetFuncName = methodName;
-                            isUserDefinedInTableFunc = true;
-                        }
+                            isUserDefinedInTableFunc = false;
 
+                        }
                         // TODO: 更多内置库的函数支持
                         if (targetFuncName.Length < 1)
                         {
@@ -1475,7 +1598,7 @@ namespace gsharpc
                             {
                                 var tableSlot = argStartSlot;
                                 result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LEN, "len %" + proto.tmp1StackTopSlotIndex + " %" + tableSlot + commentPrefix, i));
-                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADNIL,"loadnil %" + resultSlotIndex + " 0" + commentPrefix, i));
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADNIL, "loadnil %" + resultSlotIndex + " 0" + commentPrefix, i));
                                 result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_SETTABLE, "settable %" + tableSlot + " %" + proto.tmp1StackTopSlotIndex + " %" + resultSlotIndex + commentPrefix + "array.pop", i));
                             }
                             else if (targetFuncName == "map.pairs")
@@ -1531,42 +1654,40 @@ namespace gsharpc
                         }
                         else if (isUserDefineFunc)
                         {
-                            //if (!isUserDefinedInTableFunc)
-                            //{
-                            //    //访问本类成员方法
-                            //    var protoName = TranslatorUtils.MakeProtoName(calledMethod);
-                            //    var funcUpvalIndex = proto.InternUpvalue(protoName); 
-                            //    proto.InternConstantValue(protoName);
-
-                            //    result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETUPVAL,
-                            //            "getupval %" + proto.tmp2StackTopSlotIndex + " @" + funcUpvalIndex + commentPrefix, i));
-                            //}
-                            //else
-                            //{ 
-                            // 访问其他类的成员方法，需要gettable取出函数
-                            var protoName = TranslatorUtils.MakeProtoName(calledMethod);
-                            //var funcUpvalIndex = proto.InternUpvalue(protoName);  //check zq  delete ?? 删除，无需从upvalue里取， 从table中取，因为class创建closure时候未追加伪指令操作upvalue
-                            proto.InternConstantValue(protoName);
-                            if (targetFuncName == null || targetFuncName.Length < 1)
+                            if (isUserDefinedInTableFunc)
                             {
-                                targetFuncName = calledMethod.Name;
-                            }
-                            MakeLoadConstInst(proto, i, result, proto.tmp2StackTopSlotIndex, targetFuncName, commentPrefix);
-                            if (needPopFirstArg)
-                            {
-                                // object模拟uvm module，module信息在calledMethod的this参数中
-                                // 这时候eval stack应该是[this], argStart开始的数据应该是this, ...
-                                // result.AddRange(DebugEvalStack(proto));
-                                PopFromEvalStackTopSlot(proto, proto.tmp1StackTopSlotIndex, i, result, commentPrefix);
-                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETTABLE,
-                                    "gettable %" + proto.tmp2StackTopSlotIndex + " %" + proto.tmp1StackTopSlotIndex + " %" + proto.tmp2StackTopSlotIndex + commentPrefix, i));
+                                //访问工具类的成员方法，访问的是父proto的局部变量，所以是访问upvalue
+                                var protoName = TranslatorUtils.MakeProtoNameOfTypeConstructor(calledType);
+                                var funcUpvalIndex = proto.InternUpvalue(protoName);
+                                proto.InternConstantValue(protoName);
+                                MakeLoadConstInst(proto, i, result, proto.tmpMaxStackTopSlotIndex, targetFuncName, commentPrefix);
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETTABUP,
+                                        "gettabup %" + proto.tmp2StackTopSlotIndex + " @" + funcUpvalIndex + " %" + proto.tmpMaxStackTopSlotIndex + commentPrefix, i));
                             }
                             else
                             {
-                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETTABLE,
-                                    "gettable %" + proto.tmp2StackTopSlotIndex + " %" + argStartSlot + " %" + proto.tmp2StackTopSlotIndex + commentPrefix, i));
+                                var protoName = TranslatorUtils.MakeProtoName(calledMethod);
+                                proto.InternConstantValue(protoName);
+                                if (targetFuncName == null || targetFuncName.Length < 1)
+                                {
+                                    targetFuncName = calledMethod.Name;
+                                }
+                                MakeLoadConstInst(proto, i, result, proto.tmp2StackTopSlotIndex, targetFuncName, commentPrefix);
+                                if (needPopFirstArg)
+                                {
+                                    // object模拟uvm module，module信息在calledMethod的this参数中
+                                    // 这时候eval stack应该是[this], argStart开始的数据应该是this, ...
+                                    // result.AddRange(DebugEvalStack(proto));
+                                    PopFromEvalStackTopSlot(proto, proto.tmp1StackTopSlotIndex, i, result, commentPrefix);
+                                    result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETTABLE,
+                                        "gettable %" + proto.tmp2StackTopSlotIndex + " %" + proto.tmp1StackTopSlotIndex + " %" + proto.tmp2StackTopSlotIndex + commentPrefix, i));
+                                }
+                                else
+                                {
+                                    result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETTABLE,
+                                        "gettable %" + proto.tmp2StackTopSlotIndex + " %" + argStartSlot + " %" + proto.tmp2StackTopSlotIndex + commentPrefix, i));
+                                }
                             }
-                            //}
 
                         }
                         else if (targetModuleName.Length < 1)
@@ -1599,8 +1720,43 @@ namespace gsharpc
                         // 把调用结果存回eval-stack
                         if (hasReturn)
                         {
+
+                            if (resultBool2IntValue)
+                            {
+
+                                proto.InternConstantValue(0);
+                                proto.InternConstantValue(false);
+                                var slotresult = proto.tmp2StackTopSlotIndex; //result
+
+                                var slotint = slotresult + 1;
+                                var slotTemp = slotresult + 2;
+                                //java合约API如果返回boolean类型数据  需要手动用Not not转换
+
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + slotresult + " %" + slotresult + commentPrefix, i));
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + slotresult + " %" + slotresult + commentPrefix, i));
+
+
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADK, "loadk %" + slotint + " const 0" + commentPrefix, i));
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADK, "loadk %" + slotTemp + " const false" + commentPrefix, i));
+                                // if slotresult==false then pc++
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_EQ, "eq 0 %" + slotresult + " %" + slotTemp + commentPrefix, i));
+
+                                var labelWhenTrue = proto.Name + "_true_" + i.Offset;
+                                var labelWhenFalse = proto.Name + "_false_" + i.Offset;
+                                labelWhenTrue = proto.InternNeedLocationLabel(
+                                        2 + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), labelWhenTrue);
+
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_JMP, "jmp 1 $" + labelWhenTrue + commentPrefix, i));
+                                labelWhenFalse =
+                                        proto.InternNeedLocationLabel(
+                                                2 + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), labelWhenFalse);
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_JMP, "jmp 1 $" + labelWhenFalse + commentPrefix, i));
+
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADK, "loadk %" + slotint + " const 1" + commentPrefix, i));
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_MOVE, "move %" + slotresult + " %" + slotint + commentPrefix, i));
+                    }
                             // 调用结果在tmp2
-                            PushIntoEvalStackTopSlot(proto, proto.tmp2StackTopSlotIndex, i, result, commentPrefix );
+                            PushIntoEvalStackTopSlot(proto, proto.tmp2StackTopSlotIndex, i, result, commentPrefix);
                         }
                     }
                     break;
@@ -1609,7 +1765,7 @@ namespace gsharpc
                     {
                         var toJmpToInst = i.Operand as Instruction;
 
-                        MakeJmpToInstruction(proto, i, "br", toJmpToInst, result, commentPrefix, onlyNeedResultCount);
+                        MakeJmpToInstruction(proto, i, "br", toJmpToInst, result, commentPrefix, onlyNeedResultCount, needTranslateResult2Boolean);
                     }
                     break;
                 case Code.Beq:
@@ -1750,24 +1906,20 @@ namespace gsharpc
                             i));
 
                         // 满足条件，跳转到目标指令
-                        MakeJmpToInstruction(proto, i, opName, toJmpToInst, result, commentPrefix, onlyNeedResultCount);
+                        MakeJmpToInstruction(proto, i, opName, toJmpToInst, result, commentPrefix, onlyNeedResultCount, needTranslateResult2Boolean);
                     }
                     break;
                 case Code.Brtrue:
-                case Code.Brtrue_S:
-                case Code.Brfalse:
-                case Code.Brfalse_S:
+                case Code.Brtrue_S://if not null or not 0 or true, branch to
                     {
                         // Branch to target if value is 1(true) or zero (false)
                         var toJmpToInst = i.Operand as Instruction;
                         Console.WriteLine(i);
                         var toJmpToOffset = toJmpToInst.Offset;
                         var opCode = i.OpCode.Code;
-                        var opName = (opCode == Code.Brtrue || opCode == Code.Brtrue_S) ? "brtrue" : "brfalse";
+                        var opName =  "brtrue";
 
-                        var eqCmpValue = (opCode == Code.Brtrue || opCode == Code.Brtrue_S) ? 0 : 1;
-
-                        // result.AddRange(DebugEvalStack(proto));
+                        var eqCmpValue = 1;
 
                         // 先判断eval stack top 是否是 1 or zero(根据是brtrue/brfalse决定cmpValue)
                         PopFromEvalStackTopSlot(proto, proto.tmp2StackTopSlotIndex, i, result, commentPrefix);
@@ -1780,21 +1932,92 @@ namespace gsharpc
 
                         // 为eqCmpValue就执行下条tmp指令，否则执行下下条指令
                         var jmpLabel1 = proto.Name + "_1_" + opName + "_" + i.Offset;
-                        var offsetOfInst1 = 2; // 如果为eqCmpValue，跳转到目标指令
+                        var offsetOfInst1 = 5; // 如果为0，跳转到本brtrue/brfalse指令后的后续指令 
                         jmpLabel1 =
                             proto.InternNeedLocationLabel(
                                 offsetOfInst1 + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), jmpLabel1);
                         result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_JMP, "jmp 1 $" + jmpLabel1 + commentPrefix,
                             i));
 
+                        //再比较是否是null 
+                        MakeLoadNilInst(proto, i, result, proto.tmp3StackTopSlotIndex, commentPrefix);
+                        // eq: if ((tmp2 == nil) ~= A) then pc++
+                        result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_ADD,
+                            "eq " + eqCmpValue + " %" + proto.tmp2StackTopSlotIndex + " %" + proto.tmp3StackTopSlotIndex +
+                            commentPrefix, i));
                         var jmpLabel2 = proto.Name + "_2_" + opName + "_" + i.Offset;
-                        var offsetOfInst2 = 2; // 如果不为eqCmpValue，则跳转到本brtrue/brfalse指令后的指令
-                        jmpLabel2 = proto.InternNeedLocationLabel(offsetOfInst2 + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), jmpLabel2);
+                        var offsetOfInst2 = 2; // 如果为null，跳转到本brtrue/brfalse指令后的后续指令
+                        jmpLabel2 =
+                            proto.InternNeedLocationLabel(
+                                offsetOfInst2 + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), jmpLabel2);
                         result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_JMP, "jmp 1 $" + jmpLabel2 + commentPrefix,
+                            i));
+                        //
+
+                        //var jmpLabel3 = proto.Name + "_3_" + opName + "_" + i.Offset;
+                        //var offsetOfInst3 = 2; // 如果不为eqCmpValue，则跳转到目标指令
+                        //jmpLabel2 = proto.InternNeedLocationLabel(offsetOfInst3 + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), jmpLabel3);
+                        // 跳转到目标指令
+                        MakeJmpToInstruction(proto, i, opName, toJmpToInst, result, commentPrefix, onlyNeedResultCount, needTranslateResult2Boolean);
+
+                        //后续指令
+
+
+                    }
+                    break;
+                case Code.Brfalse:
+                case Code.Brfalse_S://if null or 0 or false, branch to
+                    {
+                        // Branch to target if value is 1(true) or zero (false)
+                        var toJmpToInst = i.Operand as Instruction;
+                        Console.WriteLine(i);
+                        var toJmpToOffset = toJmpToInst.Offset;
+                        var opCode = i.OpCode.Code;
+                        var opName = "brfalse";
+
+                        var eqCmpValue = 1;
+
+                        // 先判断eval stack top 是否是 1 or zero(根据是brtrue/brfalse决定cmpValue)
+                        PopFromEvalStackTopSlot(proto, proto.tmp2StackTopSlotIndex, i, result, commentPrefix);
+
+                        MakeLoadConstInst(proto, i, result, proto.tmp3StackTopSlotIndex, 0, commentPrefix);
+                        // eq: if ((tmp2 == 0) ~= A) then pc++
+                        result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_ADD,
+                            "eq " + eqCmpValue + " %" + proto.tmp2StackTopSlotIndex + " %" + proto.tmp3StackTopSlotIndex +
+                            commentPrefix, i));
+
+                        // 为eqCmpValue就执行下条tmp指令，否则执行下下条指令
+                        var jmpLabel1 = proto.Name + "_1_" + opName + "_" + i.Offset;
+                        var offsetOfInst1 = 5; // 如果为0，跳转到目标指令  
+                        jmpLabel1 =
+                            proto.InternNeedLocationLabel(
+                                offsetOfInst1 + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), jmpLabel1);
+                        result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_JMP, "jmp 1 $" + jmpLabel1 + commentPrefix,
+                            i));
+
+                        //再比较是否是null 
+                        MakeLoadNilInst(proto, i, result, proto.tmp3StackTopSlotIndex, commentPrefix);
+                        // eq: if ((tmp2 == nil) ~= A) then pc++
+                        result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_ADD,
+                            "eq " + eqCmpValue + " %" + proto.tmp2StackTopSlotIndex + " %" + proto.tmp3StackTopSlotIndex +
+                            commentPrefix, i));
+                        var jmpLabel2 = proto.Name + "_2_" + opName + "_" + i.Offset;
+                        var offsetOfInst2 = 2; // 如果为null，跳转到目标指令  
+                        jmpLabel2 =
+                            proto.InternNeedLocationLabel(
+                                offsetOfInst2 + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), jmpLabel2);
+                        result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_JMP, "jmp 1 $" + jmpLabel2 + commentPrefix,
+                            i));
+                        //
+
+                        var jmpLabel3 = proto.Name + "_3_" + opName + "_" + i.Offset;
+                        var offsetOfInst3 = 2; // 如果不为eqCmpValue，则跳转到本brtrue/brfalse指令后的指令
+                        jmpLabel3 = proto.InternNeedLocationLabel(offsetOfInst3 + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), jmpLabel3);
+                        result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_JMP, "jmp 1 $" + jmpLabel3 + commentPrefix,
                             i));
 
                         // 跳转到目标指令
-                        MakeJmpToInstruction(proto, i, opName, toJmpToInst, result, commentPrefix, onlyNeedResultCount);
+                        MakeJmpToInstruction(proto, i, opName, toJmpToInst, result, commentPrefix, onlyNeedResultCount, needTranslateResult2Boolean);
                     }
                     break;
                 case Code.Ret:
@@ -1807,6 +2030,12 @@ namespace gsharpc
                             //此时应把所有evalstack pop出来 
                             PopFromEvalStackTopSlot(proto, proto.tmp1StackTopSlotIndex, i, result, commentPrefix);
                             //MakeGetTopOfEvalStackInst(proto, i, result, proto.tmp1StackTopSlotIndex, commentPrefix);
+                            if (needTranslateResult2Boolean)
+                            {
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + proto.tmp1StackTopSlotIndex + " %" + proto.tmp1StackTopSlotIndex + commentPrefix + ";convertResult2RealBool", i));
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + proto.tmp1StackTopSlotIndex + " %" + proto.tmp1StackTopSlotIndex + commentPrefix + ";convertResult2RealBool", i));
+                            }
+
                             result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_RETURN, "return %" + proto.tmp1StackTopSlotIndex + " " + (returnCount + 1) + commentPrefix, i));
                         }
                         result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_RETURN, "return %0 1" + commentPrefix + " ret", i));
@@ -1820,7 +2049,7 @@ namespace gsharpc
                         // 创建一个空数组放入eval-stack顶
                         // 获取eval stack顶部的值                   
                         result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NEWTABLE, "newtable %" + proto.tmp2StackTopSlotIndex + " 0 0" + commentPrefix, i));
-                       
+
                         PushIntoEvalStackTopSlot(proto, proto.tmp2StackTopSlotIndex, i, result, commentPrefix + " newarr ");
                     }
                     break;
@@ -1861,6 +2090,15 @@ namespace gsharpc
                             result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_CALL,
                               "call %" + proto.tmp2StackTopSlotIndex + " 1 2", i));
                             // 返回值(新对象处于tmp2 slot) 
+                        }
+                        else if (operand != null && operand.DeclaringType.IsDefinition && TranslatorUtils.IsComponentType(operand.DeclaringType as TypeDefinition))
+                        {
+                            //new 工具类实例 ， 不需要new ,从upvalue取就可以， 顶层proto的局部变量（table）
+                            var calledTypeName = operand.DeclaringType.FullName;
+                            var protoName = TranslatorUtils.MakeProtoNameOfTypeConstructor(operand.DeclaringType);
+                            var funcUpvalIndex = proto.InternUpvalue(protoName);
+                            proto.InternConstantValue(protoName);
+                            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETUPVAL, "getupval %" + proto.tmp2StackTopSlotIndex + " @" + funcUpvalIndex + commentPrefix, i));
                         }
                         else
                         {
@@ -1930,7 +2168,7 @@ namespace gsharpc
                             compareType = "ne";
                         }
 
-                        MakeCompareInstructions(proto, compareType, i, result, commentPrefix);
+                        MakeCompareInstructions(proto, compareType, i, result, commentPrefix );
 
                     }
                     break;
@@ -1971,17 +2209,17 @@ namespace gsharpc
                     break;
                 case Code.Castclass:
                     {
-                            string operand = i.Operand.ToString();
-                            if (operand.StartsWith("UvmCoreLib.UvmMap") ||
-                                operand.StartsWith("UvmCoreLib.UvmArray"))
-                            {
-                                break;
-                            }
-                            else
-                            {
-                                throw new Exception("not supported op code " + Code.Castclass);
-                            }
-                       
+                        string operand = i.Operand.ToString();
+                        if (operand.StartsWith("UvmCoreLib.UvmMap") ||
+                            operand.StartsWith("UvmCoreLib.UvmArray"))
+                        {
+                            break;
+                        }
+                        else
+                        {
+                            throw new Exception("not supported op code " + Code.Castclass);
+                        }
+
                     }
                 default:
                     {
@@ -2031,10 +2269,18 @@ namespace gsharpc
             var localStartIdx = proto.SizeP;
             var localsCount = method.Body.Variables.Count();
             proto.SizeLocVars = 0;
-            for(int i=0;i< localsCount; i++)
+
+            var needTranslateResult2Boolean = false;
+            if (method.ReturnType.FullName == "System.Boolean") //return boolean
+            {
+                needTranslateResult2Boolean = true;
+            }
+
+            for (int i = 0; i < localsCount; i++)
             {
                 var name = method.Body.Variables[i].Name;
-                if(name == "") {
+                if (name == "")
+                {
                     name = "V_" + i;
                     //break;
                 }
@@ -2077,41 +2323,6 @@ namespace gsharpc
             var lastLinenumber = 0;
 
 
-            //add by zq
-            //GroupILInstructions(proto, method);
-            //foreach (var ilgroup in proto.ILInsGroups)
-            //{
-            //    Instruction i = ilgroup.ILInstructions[0];
-            //    ilContentBuilder.Append("" + i.OpCode + " " + i.Operand + "\r\n");
-            //    var commentPrefix = ";"; // 一行指令的行信息的注释前缀
-            //    var hasLineInfo = i.SequencePoint != null;
-            //    if (hasLineInfo)
-            //    {
-            //        var startLine = i.SequencePoint.StartLine;
-            //        var endLine = i.SequencePoint.EndLine;
-            //        if (startLine > 1000000)
-            //        {
-            //            startLine = lastLinenumber;
-            //        }
-            //        commentPrefix += "L" + startLine + ";";
-            //        lastLinenumber = startLine;
-            //    }
-            //    else
-            //    {
-            //        commentPrefix += "L" + lastLinenumber + ";";
-            //    }
-            //    var dotnetOpStr = i.OpCode.ToString();
-            //    // commentPrefix += dotnetOpStr;
-            //    // 关于.net的evaluation stack在uvm字节码虚拟机中的实现方式
-            //    // 维护一个evaluation stack的局部变量,，每个proto入口处清空它
-            //    var uvmInstructions = TranslateILInstructionsGroup(proto, ilgroup, commentPrefix, false);
-            //    foreach (var uvmInst in uvmInstructions)
-            //    {
-            //        proto.AddInstruction(uvmInst);
-            //    }
-            //}
-
-
             // 不需要支持类型的虚函数调用，只支持静态函数
             foreach (var i in method.Body.Instructions)
             {
@@ -2137,7 +2348,7 @@ namespace gsharpc
                 // commentPrefix += dotnetOpStr;
                 // 关于.net的evaluation stack在uvm字节码虚拟机中的实现方式
                 // 维护一个evaluation stack的局部变量,，每个proto入口处清空它
-                var uvmInstructions = TranslateILInstruction(proto, i, commentPrefix, false);
+                var uvmInstructions = TranslateILInstruction(proto, i, commentPrefix, false, needTranslateResult2Boolean);
                 foreach (var uvmInst in uvmInstructions)
                 {
                     proto.AddInstruction(uvmInst);
@@ -2380,7 +2591,7 @@ namespace gsharpc
                         //{
                         //    proto.maxCallStackSize = loc;
                         //}
-                        targetSlot = proto.paramsStartIndex +proto.Numparams + loc;
+                        targetSlot = proto.paramsStartIndex + proto.Numparams + loc;
                     }
                     break;
                 case Code.Starg:
@@ -2406,7 +2617,7 @@ namespace gsharpc
             return targetSlot;
         }
 
-  
+
 
         //------------------------reduce code imp----------------------------------
         private void checkSlot(string slot)
@@ -2454,7 +2665,6 @@ namespace gsharpc
             }
         }
 
-
         private void ReduceProtoUvmInsts(UvmProto proto)
         {
             Console.Write("begin reduce: proto name = " + proto.Name + " totalLines = " + proto.CodeInstructions.Count() + "\n");
@@ -2473,7 +2683,7 @@ namespace gsharpc
         }
 
 
-    
+
         private int ReduceUvmInstsImp(UvmProto proto)
         {
             var notEmptyCodeInstructions = new List<UvmInstruction>();
@@ -2495,7 +2705,7 @@ namespace gsharpc
             List<int> modifyIndexes = new List<int>();
             List<UvmInstruction> modifyUvmIns = new List<UvmInstruction>();
             List<string> uvmJmpIns = new List<string>();
-            
+
             var UvmInstCount = CodeInstructions.Count;
             string affectedSlot = "";
             string uvmInsstr = "";
@@ -2526,15 +2736,15 @@ namespace gsharpc
 
 
                 UvmOpCodeEnums opcode1 = CodeInstructions[gIndex].OpCode.OpCodeValue;
-                if((opcode1 == UvmOpCodeEnums.OP_PUSH) && (!CodeInstructions[gIndex].HasLocationLabel()))
+                if ((opcode1 == UvmOpCodeEnums.OP_PUSH) && (!CodeInstructions[gIndex].HasLocationLabel()))
                 {
-                    if (gIndex+1< UvmInstCount)
+                    if (gIndex + 1 < UvmInstCount)
                     {
                         var ins2 = CodeInstructions[gIndex + 1];
                         if ((ins2.OpCode.OpCodeValue == UvmOpCodeEnums.OP_POP) && (!ins2.HasLocationLabel()))
                         {
                             var ssCount = ss.Count();
-                            if ((ssCount == 2)&& ss[1].StartsWith("%"))
+                            if ((ssCount == 2) && ss[1].StartsWith("%"))
                             {
                                 affectedSlot = ss[1];
                             }
@@ -2550,14 +2760,14 @@ namespace gsharpc
                                 else
                                 {
                                     throw new Exception("error ReduceUvmInsts,invalid uvm inst:" + uvmInsstr);
-                                } 
-                                
+                                }
+
                             }
 
 
                             var uvmInsstr2 = ins2.ToString().Trim();
                             var commentIndex2 = uvmInsstr2.IndexOf(";");
-                         
+
                             if (commentIndex2 >= 0)
                             {
                                 commentPrefix = commentPrefix + "," + uvmInsstr2.Substring(commentIndex2);
@@ -2565,7 +2775,7 @@ namespace gsharpc
                             }
 
 
-                            
+
                             var ss2 = uvmInsstr2.Split();
                             var targetSlot = ss2[1];
 
@@ -2573,7 +2783,7 @@ namespace gsharpc
                             {
                                 throw new Exception("error ReduceUvmInsts,invalid uvm inst:" + uvmInsstr2);
                             }
-    
+
 
                             UvmInstruction inst;
                             if (affectedSlot.StartsWith("%"))
@@ -2590,13 +2800,13 @@ namespace gsharpc
                             }
 
                             delIndexes.Add(gIndex);
-                            modifyIndexes.Add(gIndex+1);
+                            modifyIndexes.Add(gIndex + 1);
                             modifyUvmIns.Add(inst);
                             //Console.Write("find push-pop evaltop group, index " + gIndex + "," + (gIndex+1) + "\n");
                         }
                     }
                 }
-                
+
             }
             int delcount = delIndexes.Count();
 
@@ -2637,8 +2847,5 @@ namespace gsharpc
             Console.Write("reduce codeslines =" + delIndexes.Count() + "\n");
             return delcount;
         }
-
-
-
     }
 }
