@@ -173,8 +173,13 @@ namespace gsharpc
                 throw new Exception("topType null or contractType null");
             }
             var proto = new UvmProto(TranslatorUtils.MakeProtoNameOfTypeConstructor(topType)); //合约内main方法所属的class作为整个合约的mainproto
+
             proto.InternUpvalue("ENV");
             UvmProto topProto = proto;
+
+            topProto.SizeP = 0;
+            topProto.Numparams = 0;
+            
 
             UvmProto codeMainProto = null;  //合约内的main方法
             var tableSlot = 0;
@@ -187,7 +192,7 @@ namespace gsharpc
                 //utilProto.parent = mainProto
                 // 将utilProto在mainProto里closure化，作为mainProto的一个locvar，之后contractProto里可通过upval方式访问到
                 topProto.InternConstantValue(utilProto.Name);
-                var slotIndex = topProto.SubProtos.Count + 1;
+                var slotIndex = topProto.Numparams + topProto.SubProtos.Count ;
                 topProto.AddInstructionLine(UvmOpCodeEnums.OP_CLOSURE, "closure %" + tempslot + " " + utilProto.Name, null);
                 topProto.AddInstructionLine(UvmOpCodeEnums.OP_CALL, "call %" + tempslot + " " + (1) + " " + (2), null);
                 topProto.AddInstructionLine(UvmOpCodeEnums.OP_MOVE, "move %" + slotIndex + " %" + tempslot, null);
@@ -208,7 +213,7 @@ namespace gsharpc
                 }
                 // 把各成员函数加入slots
                 topProto.InternConstantValue(methodProto.Name);
-                var slotIndex = topProto.SubProtos.Count + 1;
+                var slotIndex = topProto.Numparams + topProto.SubProtos.Count ;
                 topProto.AddInstructionLine(UvmOpCodeEnums.OP_CLOSURE, "closure %" + slotIndex + " " + methodProto.Name, null);
                 topProto.InternConstantValue(m.Name);
                 topProto.AddInstructionLine(UvmOpCodeEnums.OP_LOADK, "loadk %" + tmp1Slot + " const \"" + m.Name + "\"", null);
@@ -248,6 +253,10 @@ namespace gsharpc
                 contractProto = TranslateILType(contractType, ilContentBuilder, uvmAsmBuilder, codeMainProto);
                 codeMainProto.SubProtos.Add(contractProto); //合约class的proto从属于main函数的proto
             }
+
+            topProto.SizeLocVars = topProto.Locvars.Count();
+            topProto.SizeK = topProto.ConstantValues.Count();
+
             return topProto;
 
         }
@@ -257,6 +266,9 @@ namespace gsharpc
         {
             var proto = new UvmProto(TranslatorUtils.MakeProtoNameOfTypeConstructor(typeDefinition));
             proto.Parent = parentProto;
+
+            proto.SizeP = 0;
+            proto.Numparams = 1; //this
 
             // 把类型转换成的proto被做成有一些slot指向成员函数的构造函数，保留slot指向成员函数是为了方便子对象upval访问(不一定需要)
             var tableSlot = 0;
@@ -272,10 +284,8 @@ namespace gsharpc
                 }
                 // 把各成员函数加入slots    
                 proto.InternConstantValue(methodProto.Name);
-                var slotIndex = proto.SubProtos.Count + 1;
+                var slotIndex = proto.Numparams + proto.SubProtos.Count ;
                 proto.AddInstructionLine(UvmOpCodeEnums.OP_CLOSURE, "closure %" + slotIndex + " " + methodProto.Name, null);
-
-
                 proto.InternConstantValue(m.Name);
                 proto.AddInstructionLine(UvmOpCodeEnums.OP_LOADK, "loadk %" + tmp1Slot + " const \"" + m.Name + "\"", null);
                 proto.AddInstructionLine(UvmOpCodeEnums.OP_SETTABLE,
@@ -291,6 +301,8 @@ namespace gsharpc
             proto.AddInstructionLine(UvmOpCodeEnums.OP_RETURN, "return %" + tableSlot + " 2", null); // 构造函数的返回值
             proto.AddInstructionLine(UvmOpCodeEnums.OP_RETURN, "return %0 1", null);
 
+            proto.SizeLocVars = proto.Locvars.Count();
+            proto.SizeK = proto.ConstantValues.Count();
 
             return proto;
         }
@@ -1542,6 +1554,7 @@ namespace gsharpc
                             }
 
                         }
+                        
 
                         var resultSlotIndex = proto.tmp2StackTopSlotIndex;
                         // tmp2StackTopSlotIndex 用来存放函数本身, tmp3是第一个参数
@@ -1549,7 +1562,7 @@ namespace gsharpc
                         {
                             if (targetFuncName == "concat")
                             {
-                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_CONCAT, "concat %" + resultSlotIndex + " %" + proto.tmp3StackTopSlotIndex + " %" + (proto.tmp3StackTopSlotIndex + 1) + commentPrefix, i));
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_CONCAT, "concat %" + resultSlotIndex + " %" + proto.tmp3StackTopSlotIndex + " %" + (proto.tmp3StackTopSlotIndex + paramsCount -1 ) + commentPrefix, i));
                             }
                             else if (targetFuncName == "newtable")
                             {

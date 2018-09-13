@@ -159,6 +159,11 @@ namespace UvmCoreLib
             return new T();
         }
 
+        public static T importContractFromAddress<T>(string contractAddr) where T : new()
+        {
+            return new T();
+        }
+
         public static T importModule<T>(string moduleName) where T : new()
         {
             var innerModules = new List<string>() {
