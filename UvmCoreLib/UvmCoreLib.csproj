@@ -44,6 +44,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="IUvmComponent.cs" />
     <Compile Include="UvmContract.cs" />
     <Compile Include="UvmCoreFuncs.cs" />
     <Compile Include="UvmJsonModule.cs" />
