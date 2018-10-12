@@ -64,8 +64,6 @@ namespace gsharpc
           var uvmsAssProcess = new Process();
           Console.WriteLine("cur dir is " + Environment.CurrentDirectory);
           var uvmAssFilePath = Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, "uvm_ass"));
-
-          uvmAssFilePath = "F:\\gitwork\\gsharpc\\DemoContract1\\bin\\Debug\\uvm_ass"; //test
           uvmsAssProcess.StartInfo.FileName = uvmAssFilePath;
           if(isWindows)
           {

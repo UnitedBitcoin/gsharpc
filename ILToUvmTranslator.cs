@@ -2111,8 +2111,16 @@ namespace gsharpc
 
         public static string TranslateDotNetDllToUvm(string dllFilepath)
         {
-            var readerParameters = new ReaderParameters { ReadSymbols = true };
-            var assemblyDefinition = AssemblyDefinition.ReadAssembly(dllFilepath, readerParameters);
+            AssemblyDefinition assemblyDefinition = null;
+            try
+            {
+                var readerParameters = new ReaderParameters { ReadSymbols = true };
+                assemblyDefinition = AssemblyDefinition.ReadAssembly(dllFilepath, readerParameters);
+            } catch(Exception)
+            {
+                var readerParameters = new ReaderParameters { ReadSymbols = false };
+                assemblyDefinition = AssemblyDefinition.ReadAssembly(dllFilepath, readerParameters);
+            }
             var sampleModule = assemblyDefinition.MainModule; // ModuleDefinition.ReadModule(sampleAssemblyPath);
             var translator = new ILToUvmTranslator();
             var ilContentBuilder = new StringBuilder();
