@@ -41,6 +41,19 @@ namespace gsharpc
             return false;
         }
 
+        public static bool IsComponentType(TypeDefinition typeDefinition)
+        {
+            var interfaces = typeDefinition.Interfaces;
+            foreach (var item in interfaces)
+            {
+                if (item.FullName == typeof(IUvmComponent).FullName)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         public static bool IsContractType(TypeDefinition typeDefinition)
         {
             return typeDefinition.BaseType != null
@@ -89,6 +102,7 @@ namespace gsharpc
         {
             return method.Name == ".ctor";
         }
+
 
         public static bool IsContractApiMethod(MethodReference method)
         {

@@ -114,28 +114,32 @@ namespace UvmCoreLib
         {
             Console.WriteLine(tojsonstring(obj));
         }
-        public static int? tointeger(object obj)
+
+
+        public static long tointeger(object obj)
         {
             if (obj == null)
             {
-                return null;
+                Error("tointeger error ");
             }
-            if (obj is int)
+            if ((obj is long)|| (obj is int))
             {
-                return (int)obj;
+                return (long)obj;
             }
-            int result = 0;
-            if (!int.TryParse(obj.ToString(), out result))
+            long result = 0;
+            if (!long.TryParse(obj.ToString(), out result))
             {
-                return null;
+                Error("tointeger error ");
             }
             return result;
         }
-        public static float? tonumber(object obj)
+
+        public static float tonumber(object obj)
         {
             if (obj == null)
             {
-                return null;
+                Console.WriteLine("tonumber error ");
+                return 0.0F;
             }
             if (obj is float)
             {
@@ -144,12 +148,18 @@ namespace UvmCoreLib
             float result = 0;
             if (!float.TryParse(obj.ToString(), out result))
             {
-                return null;
+                Console.WriteLine("tonumber error ");
+                return 0.0F;
             }
             return result;
         }
 
         public static T importContract<T>(string contractName) where T : new()
+        {
+            return new T();
+        }
+
+        public static T importContractFromAddress<T>(string contractAddr) where T : new()
         {
             return new T();
         }
@@ -455,6 +465,19 @@ namespace UvmCoreLib
         {
             return _system_asset_precision_for_mock;
         }
+
+
+        public static object fast_map_get(string storagename,string key)
+        {   
+            return new object();
+        }
+
+
+        public static void fast_map_set(string storagename, string key,object value)
+        {
+            
+        }
+
 
     }
 }

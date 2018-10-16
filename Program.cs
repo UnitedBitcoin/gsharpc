@@ -57,7 +57,6 @@ namespace gsharpc
       {
         var dllFilepath = toCompileFilePaths[i];
         var uvmsOutputFilePath = ILToUvmTranslator.TranslateDotNetDllToUvm(dllFilepath);  // for test
-        //var uvmsOutputFilePath = "F:\\gitwork\\gsharpc\\DemoContract1\\bin\\Debug\\DemoContract1.uvms";   // for test
         if (!onlyCompileToUvms)
         {
           // 调用 uvm_ass来生成.out字节码文件，并删除.uvms文件

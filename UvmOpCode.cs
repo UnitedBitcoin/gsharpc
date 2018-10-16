@@ -75,11 +75,18 @@ namespace gsharpc
 
         OP_VARARG, /*	A B	R(A), R(A+1), ..., R(A+B-2) = vararg		*/
 
-        OP_PUSH, /*	add by zq		*/
-        OP_POP, /*	add by zq		*/
-        OP_GETTOP, /*	add by zq		*/
+        OP_EXTRAARG, /*	Ax	extra (larger) argument for previous opcode	*/
+        OP_PUSH, /*	add 		*/
+        OP_POP, /*	add 	*/
+        OP_GETTOP, /*	add 		*/
 
-        OP_EXTRAARG /*	Ax	extra (larger) argument for previous opcode	*/
+        OP_CMP,  /* A B C   if((R(B)>R(C))then{R(A):=1;}else if((R(B)==R(C))then{R(A):=0;}else if((R(B)<R(C))then{R(A):=-1;}*/
+        OP_CMP_EQ,  /* A B C   */
+        OP_CMP_NE,  /* A B C   */
+        OP_CMP_GT,  /* A B C   */
+        OP_CMP_LT  /* A B C   */
+
+
     }
 
     /*===========================================================================
@@ -151,12 +158,17 @@ namespace gsharpc
             "SETLIST",
             "CLOSURE",
             "VARARG",
-            //add by zq
+            "EXTRAARG",
+            //add
             "PUSH",
             "POP",
             "GETTOP",
+            "CMP",
+            "CMP_EQ",
+            "CMP_NE",
+            "CMP_GT",
+            "CMP_LT"
 
-            "EXTRAARG"
         };
         public UvmOpCodeEnums OpCodeValue { get; set; }
     }
