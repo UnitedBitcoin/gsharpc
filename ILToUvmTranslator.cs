@@ -804,7 +804,12 @@ namespace gsharpc
                         //    proto.maxCallStackSize = loc;
                         //}
                         // 获取eval stack的栈顶值
-                        PopFromEvalStackTopSlot(proto, proto.paramsStartIndex + proto.Numparams + loc, i, result, commentPrefix);
+                        PopFromEvalStackTopSlot(proto, proto.Numparams + loc, i, result, commentPrefix);
+                        proto.Locvars[proto.Numparams + loc].StartPc = proto.NotEmptyCodeInstructions().Count + result.Count(); //add start pc
+                        if(proto.Numparams + loc != proto.Locvars[proto.Numparams + loc].SlotIndex)
+                        {
+                            throw new Exception("slot not match localvar:" + proto.Locvars[proto.Numparams + loc].Name);
+                        }
                     }
                     break;
                 case Code.Starg:
@@ -905,7 +910,7 @@ namespace gsharpc
                             //}
                         }
                         // 从当前函数栈的call stack(slots区域)把某个数据复制到eval stack
-                        var slotIndex = proto.paramsStartIndex + proto.Numparams + loc;
+                        var slotIndex = proto.Numparams + loc;
                         // 复制数据到eval stack
                         PushIntoEvalStackTopSlot(proto, slotIndex, i, result, commentPrefix + " ldloc " + loc + " " + ILVariableNameFromDefinition(varInfo));
                     }
@@ -2264,7 +2269,7 @@ namespace gsharpc
             var protoName = TranslatorUtils.MakeProtoName(method);
             var proto = new UvmProto(protoName);
             proto.SizeP = method.Parameters.Count; // 参数数量
-            proto.paramsStartIndex = 0;
+
             if (method.HasThis)
             {
                 proto.SizeP++; // this对象作为第一个参数
@@ -2288,6 +2293,29 @@ namespace gsharpc
             {
                 needTranslateResult2Boolean = true;
             }
+
+            //add params to locvals 
+            if (method.HasThis)
+            {
+                UvmLocVar uvmloc = new UvmLocVar();
+                uvmloc.Name = "this";
+                uvmloc.SlotIndex = 0;
+                proto.Locvars.Add(uvmloc);
+            }
+            for (int i = 0; i < method.Parameters.Count; i++)
+            {
+                var para_name = method.Parameters[i].Name;
+                if (para_name == "")
+                {
+                    para_name = "Vparam_" + i;
+                }
+                UvmLocVar uvmloc = new UvmLocVar();
+                uvmloc.Name = para_name;
+                uvmloc.SlotIndex = proto.Locvars.Count();
+                proto.Locvars.Add(uvmloc);
+            }
+            //------------------------------------------------------    
+            
 
             for (int i = 0; i < localsCount; i++)
             {
@@ -2612,7 +2640,7 @@ namespace gsharpc
                         //{
                         //    proto.maxCallStackSize = loc;
                         //}
-                        targetSlot = proto.paramsStartIndex + proto.Numparams + loc;
+                        targetSlot = proto.Numparams + loc;
                     }
                     break;
                 case Code.Starg:
@@ -2865,6 +2893,20 @@ namespace gsharpc
                     proto.NeededLocationsMap.Add(loc.Key, loc.Value);
                 }
             }
+
+            //调整localval startpc
+            foreach (var locval in proto.Locvars)
+            {
+                if (locval.StartPc > 0)
+                {
+                    var newPc = locval.StartPc - getLtCount(delIndexes, locval.StartPc);
+                    locval.StartPc = newPc;
+                }
+            }
+              
+
+
+
             Console.Write("reduce codeslines =" + delIndexes.Count() + "\n");
             return delcount;
         }

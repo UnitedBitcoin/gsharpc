@@ -14,6 +14,17 @@ namespace gsharpc
     {
         public string Name { get; set; }
         public int SlotIndex { get; set; }
+
+        public int StartPc { get; set; }
+        public int EndPc { get; set; }
+
+        public UvmLocVar()
+        {
+            Name = "";
+            SlotIndex = 0;
+            StartPc = 0;
+            EndPc = 0;
+        }
     }
 
     public class UvmUpvaldesc
@@ -43,7 +54,7 @@ namespace gsharpc
         public IList<UvmInstruction> CodeInstructions { get; set; }  /* opcodes */
         public IList<UvmProto> SubProtos;  /* functions defined inside the function */
         public IList<int> Lineinfo { get; set; }  /* map from opcodes to source lines (debug information) */
-        public IList<UvmLocVar> Locvars { get; set; }  /* information about local variables (debug information) */
+        public IList<UvmLocVar> Locvars { get; set; }  /* information about local variables include params (debug information) */
         public IList<UvmUpvaldesc> Upvalues { get; set; }  /* upvalue information */
         public string Source { get; set; }  /* used for debug information */
 
@@ -55,7 +66,6 @@ namespace gsharpc
         public UvmProto Parent { get; set; }
 
         // translating states
-        public int paramsStartIndex { get; set; }
         //public int evalStackIndex { get; set; }
         //public int evalStackSizeIndex { get; set; }
         public int tmp1StackTopSlotIndex { get; set; }
@@ -140,8 +150,8 @@ namespace gsharpc
             builder.Append(".begin_local\r\n");
             SizeCode = CodeInstructions.Count;
             foreach (var local in Locvars)
-            {
-                builder.Append("\t" + "\"" +local.Name + "\"" + " 1 " + SizeCode + "\r\n");
+            {          
+                builder.Append("\t" + "\"" +local.Name + "\" " + local.StartPc+ " " + SizeCode + "\r\n");
             }
             builder.Append(".end_local\r\n");
 
