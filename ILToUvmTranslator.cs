@@ -1101,6 +1101,8 @@ namespace gsharpc
                         var targetModuleName = ""; // 转成uvm后对应的模块名称，比如可能转成print，也可能转成table.concat等
                         var targetFuncName = ""; // 全局方法名或模块中的方法名，或者本模块中的名称
                         var useOpcode = false;
+                        var isCallContractApi = false;
+                        var callOp = "";
                         if (calledTypeName == "System.Console")
                         {
                             if (methodName == "WriteLine")
@@ -1328,6 +1330,25 @@ namespace gsharpc
 
                                 return result;
                             }
+                            else if (methodName == "call_contract_api")
+                            {
+                                isCallContractApi = true;
+                                isUserDefineFunc = true;
+                                needPopFirstArg = false;
+                                useOpcode = true;
+                                targetFuncName = methodName;
+                                callOp = "ccall";
+
+                            }
+                            else if(methodName == "static_call_contract_api")
+                            {
+                                isCallContractApi = true;
+                                isUserDefineFunc = true;
+                                needPopFirstArg = false;
+                                useOpcode = true;
+                                targetFuncName = methodName;
+                                callOp = "cstaticcall";
+                            }
                             else if (UvmCoreLib.UvmCoreFuncs.GlobalFuncsMapping.ContainsKey(methodName))
                             {
                                 targetFuncName = UvmCoreLib.UvmCoreFuncs.GlobalFuncsMapping[methodName];
@@ -1504,14 +1525,13 @@ namespace gsharpc
                             }
 
                         }
-
-                        if (targetFuncName.Length < 1 && calledTypeName.EndsWith("MultiOwnedContractSimpleClass")) //test other contract
+                        
+                        if (targetFuncName.Length < 1/* && calledTypeName.EndsWith("MultiOwnedContractSimpleClass")*/) //call other contract
                         {
-                            //通过interface 调用其他合约方法
+                            //调用其他合约方法
                             isUserDefineFunc = true;
                             targetFuncName = methodName;
                             isUserDefinedInTableFunc = false;
-
                         }
                         // TODO: 更多内置库的函数支持
                         if (targetFuncName.Length < 1)
@@ -1527,7 +1547,7 @@ namespace gsharpc
 
                         // 消耗eval stack顶部若干个值用来调用相应的本类成员函数或者静态函数, 返回值存入eval stack
                         // 不断取出eval-stack中数据(paramsCount)个，倒序翻入tmp stot，然后调用函数
-                        var argStartSlot = proto.tmp3StackTopSlotIndex;
+                        var argStartSlot = proto.tmp3StackTopSlotIndex;//arg开始位置 包括this
                         for (var c = 0; c < paramsCount; c++)
                         {
                             // 倒序遍历插入参数,不算this, c是第 index=paramsCount-c-1-preAddParamsCount个参数
@@ -1681,6 +1701,21 @@ namespace gsharpc
                                 MakeLoadConstInst(proto, i, result, proto.tmpMaxStackTopSlotIndex, targetFuncName, commentPrefix);
                                 result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETTABUP,
                                         "gettabup %" + proto.tmp2StackTopSlotIndex + " @" + funcUpvalIndex + " %" + proto.tmpMaxStackTopSlotIndex + commentPrefix, i));
+                            }
+                            else if (isCallContractApi)
+                            {
+                                //UOP_CCALL, /* A B C ;B表示argsnum+1;C表示returnnum+1;  R(A), ... ,R(A+C-2) := CALL CONTRACT:R(A)  API:R(A+1)(ARGS: R(A+2),...R(A+B))*/
+                                //ccall %8 2 2 
+                                //slot排放位置依次为 contract_addr , api_name, arg1,arg2,...
+                                var realArgsNum = paramsCount - 2;
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_CCALL,
+                                callOp + " %" + proto.tmp3StackTopSlotIndex + " " + (realArgsNum + 1) + " " + (returnCount + 1) +
+                                commentPrefix, i));
+
+                                //结果放在temp2
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_MOVE,
+                                       "move %" + proto.tmp2StackTopSlotIndex + " %" + proto.tmp3StackTopSlotIndex + commentPrefix, i));
+
                             }
                             else
                             {
@@ -2330,7 +2365,7 @@ namespace gsharpc
                 uvmloc.SlotIndex = i + localStartIdx;
                 proto.Locvars.Add(uvmloc);
             }
-            proto.SizeLocVars = localsCount;
+            proto.SizeLocVars = proto.Locvars.Count();
 
 
             //// 在uvm的proto开头创建一个table局部变量，模拟evaluation stack
@@ -2350,7 +2385,7 @@ namespace gsharpc
             //proto.nilSlotIndex = proto.evalStackSizeIndex + 2; // 固定存储nil的slot
             //proto.AddInstruction(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADNIL, "loadnil %" + proto.nilSlotIndex + " 0", null));
 
-            var tempSlotStartIdx = localStartIdx + proto.SizeLocVars;
+            var tempSlotStartIdx = localStartIdx + localsCount;
             // 除了eval-stack的额外局部变量slot，额外还要提供2个slot用来存放一个栈顶值，用来做存到eval-stack的中转
             proto.tmp1StackTopSlotIndex = tempSlotStartIdx + 1; // 临时存储，比如存放栈中取出的值或者参数值，返回值等
             proto.tmp2StackTopSlotIndex = proto.tmp1StackTopSlotIndex + 1; // 临时存储，比如存放临时的栈顶值或者参数值等

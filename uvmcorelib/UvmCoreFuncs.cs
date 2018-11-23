@@ -479,5 +479,16 @@ namespace UvmCoreLib
         }
 
 
+        public static object call_contract_api(string contract_address, string api_name, object arg)
+        {
+            return new object();
+        }
+
+        public static object static_call_contract_api(string contract_address, string api_name, object arg)
+        {
+            return new object();
+        }
+
+
     }
 }

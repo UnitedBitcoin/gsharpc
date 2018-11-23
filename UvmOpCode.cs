@@ -84,7 +84,10 @@ namespace gsharpc
         OP_CMP_EQ,  /* A B C   */
         OP_CMP_NE,  /* A B C   */
         OP_CMP_GT,  /* A B C   */
-        OP_CMP_LT  /* A B C   */
+        OP_CMP_LT,  /* A B C   */
+
+        OP_CCALL,  /* A B C   */
+        OP_CSTATICCALL  /* A B C   */
 
 
     }
@@ -167,7 +170,9 @@ namespace gsharpc
             "CMP_EQ",
             "CMP_NE",
             "CMP_GT",
-            "CMP_LT"
+            "CMP_LT",
+            "CCALL",
+            "CSTATICCALL"
 
         };
         public UvmOpCodeEnums OpCodeValue { get; set; }
