@@ -203,7 +203,7 @@ namespace gsharpc
             }
             /* top proto*/
             var mainFullName = "";
-            var tmp1Slot = topType.Methods.Count + topProto.SubProtos.Count + 1;
+            var tmp1Slot = topType.Methods.Count + topProto.SubProtos.Count + 2;
             foreach (var m in topType.Methods)
             {
                 var methodProto = TranslateILMethod(m, ilContentBuilder, uvmAsmBuilder, topProto);
@@ -213,7 +213,7 @@ namespace gsharpc
                 }
                 // 把各成员函数加入slots
                 topProto.InternConstantValue(methodProto.Name);
-                var slotIndex = topProto.Numparams + topProto.SubProtos.Count ;
+                var slotIndex = topProto.Numparams + topProto.SubProtos.Count + 1 ; //first slot is 0
                 topProto.AddInstructionLine(UvmOpCodeEnums.OP_CLOSURE, "closure %" + slotIndex + " " + methodProto.Name, null);
                 topProto.InternConstantValue(m.Name);
                 topProto.AddInstructionLine(UvmOpCodeEnums.OP_LOADK, "loadk %" + tmp1Slot + " const \"" + m.Name + "\"", null);
