@@ -361,37 +361,6 @@ namespace gsharpc
                     toJmpUvmInstsCount += notEmptyUvmInstsCount;
                 }
 
-                //modify by zq
-                //int groupIndex = GetGroupIndex(proto, idx1 + 1);
-                //int targetGroupIndex = GetGroupIndex(proto, idx2);
-                //if (groupIndex < 0 || targetGroupIndex < 0)
-                //{
-                //    throw new Exception("程序出错 MakeJmpToInstruction");
-                //}
-                //if (proto.ILInsGroups.ElementAt(targetGroupIndex).ILIndexInMethod != idx2)
-                //{
-                //    //fixme zq  跳转目的地位于group内，需要拆掉group !!!
-                //    throw new Exception("程序出错 跳转目的地不能位于group内 MakeJmpToInstruction ");
-                //}
-
-                //ILInstructionGroup ilgroup = null;
-                //while (groupIndex < targetGroupIndex)
-                //{
-                //    var oldNotAffectMode = proto.InNotAffectMode;
-                //    proto.InNotAffectMode = true;
-                //    ilgroup = proto.ILInsGroups.ElementAt(groupIndex);
-                //    var uvmInsts = TranslateILInstructionsGroup(proto, ilgroup, commentPrefix, true);
-
-                //    proto.InNotAffectMode = oldNotAffectMode;
-                //    var notEmptyUvmInstsCount = uvmInsts.Count((UvmInstruction uvmInst) =>
-                //    {
-                //        return !(uvmInst is UvmEmptyInstruction);
-                //    });
-                //    toJmpUvmInstsCount += notEmptyUvmInstsCount;
-                //    groupIndex++;
-                //}
-
-
                 jmpLabel = proto.InternNeedLocationLabel(toJmpUvmInstsCount + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), jmpLabel);
                 result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_JMP, "jmp 1 $" + jmpLabel + commentPrefix + " " + opName,
                     i));
@@ -422,8 +391,69 @@ namespace gsharpc
 
         }
 
+        
+        private void convertInt2LuaBoolean(UvmProto proto, int slotresult, Instruction i, string commentPrefix, IList<UvmInstruction> result)
+        {
+            // 判断是否是0，如果是就是false，需要使用jmp
+            proto.InternConstantValue(0);
+            proto.InternConstantValue(true);
+            proto.InternConstantValue(false);
+
+            var slotLuaBool = proto.tmpMaxStackTopSlotIndex - 1;
+            var slotTemp = proto.tmpMaxStackTopSlotIndex;
+
+            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADK, "loadk %" + slotLuaBool + " const false" + commentPrefix, i));
+            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADK, "loadk %" + slotTemp + " const 0" + commentPrefix, i));
+            // if slotresult==false then pc++
+            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_EQ, "eq 0 %" + slotresult + " %" + slotTemp + commentPrefix, i));
+
+            var labelWhenTrue = proto.Name + "_true_" + i.Offset;
+            var labelWhenFalse = proto.Name + "_false_" + i.Offset;
+            labelWhenTrue = proto.InternNeedLocationLabel(
+                    2 + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), labelWhenTrue);
+
+            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_JMP, "jmp 1 $" + labelWhenTrue + commentPrefix, i));
+            labelWhenFalse =
+                    proto.InternNeedLocationLabel(
+                            2 + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), labelWhenFalse);
+            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_JMP, "jmp 1 $" + labelWhenFalse + commentPrefix, i));
+
+            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADK, "loadk %" + slotLuaBool + " const true" + commentPrefix, i));
+            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_MOVE, "move %" + slotresult + " %" + slotLuaBool + commentPrefix, i));
+
+        }
+
+        private void convertLuaBool2intboolean(UvmProto proto, int slotresult, Instruction i,string commentPrefix,IList<UvmInstruction> result)
+        {
+            proto.InternConstantValue(0);
+            proto.InternConstantValue(true);
+            proto.InternConstantValue(false);
+
+            var slotint = proto.tmpMaxStackTopSlotIndex - 1;
+            var slotTemp = proto.tmpMaxStackTopSlotIndex;
+
+            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADK, "loadk %" + slotint + " const 0" + commentPrefix, i));
+            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADK, "loadk %" + slotTemp + " const false" + commentPrefix, i));
+            // if slotresult==false then pc++
+            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_EQ, "eq 0 %" + slotresult + " %" + slotTemp + commentPrefix, i));
+
+            var labelWhenTrue = proto.Name + "_1_" + i.Offset;
+                var labelWhenFalse = proto.Name + "_0_" + i.Offset;
+            labelWhenTrue = proto.InternNeedLocationLabel(
+                    2 + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), labelWhenTrue);
+
+            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_JMP, "jmp 1 $" + labelWhenTrue + commentPrefix, i));
+            labelWhenFalse =
+                    proto.InternNeedLocationLabel(
+                            2 + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), labelWhenFalse);
+            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_JMP, "jmp 1 $" + labelWhenFalse + commentPrefix, i));
+
+            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADK, "loadk %" + slotint + " const 1" + commentPrefix, i));
+            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_MOVE, "move %" + slotresult + " %" + slotint + commentPrefix, i));
+        }
+
         private void MakeArithmeticInstructions(UvmProto proto, string uvmOpName, Instruction i, IList<UvmInstruction> result,
-          string commentPrefix, bool convertResultTypeBoolIfInt)
+          string commentPrefix, bool convertResultBool2intboolean)
         {
             //result.Add(proto.MakeEmptyInstruction(i.ToString()));
             proto.InternConstantValue(1);
@@ -438,29 +468,9 @@ namespace gsharpc
             // 执行算术操作符，结果存入tmp2
             result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_ADD, uvmOpName + " %" + proto.tmp2StackTopSlotIndex + " %" + arg1SlotIndex + " %" + arg2SlotIndex + commentPrefix, i));
 
-            if (convertResultTypeBoolIfInt)
+            if (convertResultBool2intboolean)
             {
-                // 判断是否是0，如果是就是false，需要使用jmp
-                proto.InternConstantValue(0);
-                proto.InternConstantValue(true);
-                proto.InternConstantValue(false);
-                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADK, "loadk %" + proto.tmp1StackTopSlotIndex + " const false" + commentPrefix, i));
-                // if tmp2==0 then pc++
-                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_EQ, "eq 0 %" + proto.tmp2StackTopSlotIndex + " const 0" + commentPrefix, i));
-
-                var labelWhenTrue = proto.Name + "_true_" + i.Offset;
-                var labelWhenFalse = proto.Name + "_false_" + i.Offset;
-                labelWhenTrue = proto.InternNeedLocationLabel(
-                                        2 + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), labelWhenTrue);
-
-                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_JMP, "jmp 1 $" + labelWhenTrue + commentPrefix, i));
-                labelWhenFalse =
-                       proto.InternNeedLocationLabel(
-                           2 + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), labelWhenFalse);
-                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_JMP, "jmp 1 $" + labelWhenFalse + commentPrefix, i));
-
-                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADK, "loadk %" + proto.tmp1StackTopSlotIndex + " const true" + commentPrefix, i));
-                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_MOVE, "move %" + proto.tmp2StackTopSlotIndex + " %" + proto.tmp1StackTopSlotIndex + commentPrefix, i));
+                convertLuaBool2intboolean(proto, proto.tmp2StackTopSlotIndex, i, commentPrefix, result);
             }
             // 把add结果存入eval stack
             PushIntoEvalStackTopSlot(proto, proto.tmp2StackTopSlotIndex, i, result, commentPrefix + " add");
@@ -629,8 +639,9 @@ namespace gsharpc
             // 对于布尔类型，因为.net中布尔类型参数加载的时候用的ldc.i，加载的是整数，所以这里要进行类型转换成bool类型，使用 not not a来转换
             if (needConvtToBool)
             {
-                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + valueSlot + " %" + valueSlot + commentPrefix, i));
-                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + valueSlot + " %" + valueSlot + commentPrefix, i));
+                convertInt2LuaBoolean(proto, valueSlot, i, commentPrefix, result);
+                //result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + valueSlot + " %" + valueSlot + commentPrefix, i));
+                //result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + valueSlot + " %" + valueSlot + commentPrefix, i));
             }
 
 
@@ -667,10 +678,11 @@ namespace gsharpc
             // 对于布尔类型，因为.net中布尔类型参数加载的时候用的ldc.i，加载的是整数，所以这里要进行类型转换成bool类型，使用 not not a来转换
             if (needConvtToBool)
             {
-                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + valueSlot + " %" + valueSlot + commentPrefix, i));
-                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + valueSlot + " %" + valueSlot + commentPrefix, i));
+                convertLuaBool2intboolean(proto, valueSlot, i, commentPrefix, result);
+                //result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + valueSlot + " %" + valueSlot + commentPrefix, i));
+                //result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + valueSlot + " %" + valueSlot + commentPrefix, i));
             }
-            proto.InternConstantValue(1);
+            //proto.InternConstantValue(1);
             // value放回eval stack                                                                      
             PushIntoEvalStackTopSlot(proto, valueSlot, i, result, commentPrefix);
         }
@@ -679,7 +691,7 @@ namespace gsharpc
          * 单元操作符转换成指令  pop 1  push 1
          */
         public void MakeSingleArithmeticInstructions(UvmProto proto, string uvmOpName, Instruction i, IList<UvmInstruction> result,
-          string commentPrefix, bool convertResultTypeBoolIfInt)
+          string commentPrefix, bool convertResultBool2intboolean)
         {
             //result.Add(proto.MakeEmptyInstruction(i.ToString()));
             proto.InternConstantValue(1);
@@ -690,30 +702,9 @@ namespace gsharpc
             // 执行算术操作符，结果存入tmp2
             result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, uvmOpName + " %" + proto.tmp2StackTopSlotIndex + " %" + arg1SlotIndex + commentPrefix, i));
 
-            if (convertResultTypeBoolIfInt)
+            if (convertResultBool2intboolean)
             {
-                // 判断是否是0，如果是就是false，需要使用jmp
-                proto.InternConstantValue(0);
-                proto.InternConstantValue(true);
-                proto.InternConstantValue(false);
-                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADK, "loadk %" + proto.tmp1StackTopSlotIndex + " const false" + commentPrefix, i));
-                // if tmp2==0 then pc++
-                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_EQ, "eq 0 %" + proto.tmp2StackTopSlotIndex + " const 0" + commentPrefix, i));
-
-                var labelWhenTrue = proto.Name + "_true_" + i.Offset;
-                var labelWhenFalse = proto.Name + "_false_" + i.Offset;
-                labelWhenTrue =
-                                    proto.InternNeedLocationLabel(
-                                        2 + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), labelWhenTrue);
-
-                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_JMP, "jmp 1 $" + labelWhenTrue + commentPrefix, i));
-                labelWhenFalse =
-                       proto.InternNeedLocationLabel(
-                           2 + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), labelWhenFalse);
-                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_JMP, "jmp 1 $" + labelWhenFalse + commentPrefix, i));
-
-                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADK, "loadk %" + proto.tmp1StackTopSlotIndex + " const true" + commentPrefix, i));
-                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_MOVE, "move %" + proto.tmp2StackTopSlotIndex + " %" + proto.tmp1StackTopSlotIndex + commentPrefix, i));
+                convertLuaBool2intboolean(proto, proto.tmp2StackTopSlotIndex, i, commentPrefix, result);
             }
 
             // 把add结果存入eval stack
@@ -1088,6 +1079,7 @@ namespace gsharpc
                         var methodParams = operand.Parameters;
                         var paramsCount = methodParams.Count;
                         var hasThis = operand.HasThis;
+                        var isExternalMethod = true;
                         var hasReturn = operand.ReturnType.FullName != "System.Void";
                         var resultBool2IntValue = false;
                         if (hasReturn && calledMethod.ReturnType.FullName == "System.Boolean")
@@ -1208,6 +1200,7 @@ namespace gsharpc
                         else if (calledTypeName == proto.method.DeclaringType.FullName)
                         {
                             // 调用本类型的方法
+                            isExternalMethod = false;
                             isUserDefineFunc = true;
                             targetFuncName = methodName;
                             //isUserDefinedInTableFunc = false;
@@ -1219,7 +1212,7 @@ namespace gsharpc
                                 targetFuncName = "band";
                                 useOpcode = true;
                                 hasThis = false;
-                                MakeArithmeticInstructions(proto, targetFuncName, i, result, commentPrefix, true);
+                                MakeArithmeticInstructions(proto, targetFuncName, i, result, commentPrefix, false);
                                 break;
                             }
                             else if (methodName == "or")
@@ -1227,7 +1220,7 @@ namespace gsharpc
                                 targetFuncName = "bor";
                                 useOpcode = true;
                                 hasThis = false;
-                                MakeArithmeticInstructions(proto, targetFuncName, i, result, commentPrefix, true);
+                                MakeArithmeticInstructions(proto, targetFuncName, i, result, commentPrefix, false);
                                 break;
                             }
                             else if (methodName == "div")
@@ -1251,7 +1244,7 @@ namespace gsharpc
                                 targetFuncName = "not";
                                 useOpcode = true;
                                 hasThis = false;
-                                MakeSingleArithmeticInstructions(proto, targetFuncName, i, result, commentPrefix, true);
+                                MakeSingleArithmeticInstructions(proto, targetFuncName, i, result, commentPrefix, false);
                                 break;
                             }
                             else if (methodName == "neg")
@@ -1463,8 +1456,7 @@ namespace gsharpc
                         }
                         else if (calledType.IsDefinition && TranslatorUtils.IsComponentType(calledType as TypeDefinition) && targetFuncName.Length < 1)
                         { //调用工具类
-
-
+                            isExternalMethod = false;
                             var protoMethodClassName = proto.method.DeclaringType.FullName;
                             if (calledTypeName.Equals(protoMethodClassName))
                             {  //工具类function调用本工具类function,通过从自己table中获取
@@ -1489,16 +1481,12 @@ namespace gsharpc
                             }
                         }
 
-
-
-
                         var preAddParamsCount = 0; // 前置额外增加的参数，比如this
                         if (hasThis)
                         {
                             paramsCount++;
                             preAddParamsCount = 1;
                         }
-
 
                         if (!(calledType is TypeDefinition) || !TranslatorUtils.IsComponentType(calledType as TypeDefinition))
                         {
@@ -1563,7 +1551,7 @@ namespace gsharpc
                             if (methodParamIndex < methodParams.Count && methodParamIndex >= 0)
                             {
                                 var paramType = methodParams[methodParamIndex].ParameterType;
-                                if (paramType.FullName == "System.Boolean")
+                                if ((paramType.FullName == "System.Boolean")&& isExternalMethod)
                                 {
                                     needConvtToBool = true;
                                 }
@@ -1574,8 +1562,9 @@ namespace gsharpc
                             // 对于布尔类型，因为.net中布尔类型参数加载的时候用的ldc.i，加载的是整数，所以这里要进行类型转换成bool类型，使用 not not a来转换
                             if (needConvtToBool)
                             {
-                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + slotIndex + " %" + slotIndex + commentPrefix, i));
-                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + slotIndex + " %" + slotIndex + commentPrefix, i));
+                                convertInt2LuaBoolean(proto, slotIndex, i, commentPrefix, result);
+                                //result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + slotIndex + " %" + slotIndex + commentPrefix, i));
+                                //result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + slotIndex + " %" + slotIndex + commentPrefix, i));
                             }
 
                         }
@@ -1774,40 +1763,10 @@ namespace gsharpc
                         if (hasReturn)
                         {
 
-                            if (resultBool2IntValue)
+                            if (resultBool2IntValue /*&& isExternalMethod*/)
                             {
-
-                                proto.InternConstantValue(0);
-                                proto.InternConstantValue(false);
-                                var slotresult = proto.tmp2StackTopSlotIndex; //result
-
-                                var slotint = slotresult + 1;
-                                var slotTemp = slotresult + 2;
-                                //java合约API如果返回boolean类型数据  需要手动用Not not转换
-
-                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + slotresult + " %" + slotresult + commentPrefix, i));
-                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + slotresult + " %" + slotresult + commentPrefix, i));
-
-
-                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADK, "loadk %" + slotint + " const 0" + commentPrefix, i));
-                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADK, "loadk %" + slotTemp + " const false" + commentPrefix, i));
-                                // if slotresult==false then pc++
-                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_EQ, "eq 0 %" + slotresult + " %" + slotTemp + commentPrefix, i));
-
-                                var labelWhenTrue = proto.Name + "_true_" + i.Offset;
-                                var labelWhenFalse = proto.Name + "_false_" + i.Offset;
-                                labelWhenTrue = proto.InternNeedLocationLabel(
-                                        2 + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), labelWhenTrue);
-
-                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_JMP, "jmp 1 $" + labelWhenTrue + commentPrefix, i));
-                                labelWhenFalse =
-                                        proto.InternNeedLocationLabel(
-                                                2 + proto.NotEmptyCodeInstructions().Count + NotEmptyUvmInstructionsCountInList(result), labelWhenFalse);
-                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_JMP, "jmp 1 $" + labelWhenFalse + commentPrefix, i));
-
-                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_LOADK, "loadk %" + slotint + " const 1" + commentPrefix, i));
-                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_MOVE, "move %" + slotresult + " %" + slotint + commentPrefix, i));
-                    }
+                                convertLuaBool2intboolean(proto, proto.tmp2StackTopSlotIndex, i, commentPrefix, result);
+                                }
                             // 调用结果在tmp2
                             PushIntoEvalStackTopSlot(proto, proto.tmp2StackTopSlotIndex, i, result, commentPrefix);
                         }
@@ -2085,8 +2044,9 @@ namespace gsharpc
                             //MakeGetTopOfEvalStackInst(proto, i, result, proto.tmp1StackTopSlotIndex, commentPrefix);
                             if (needTranslateResult2Boolean)
                             {
-                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + proto.tmp1StackTopSlotIndex + " %" + proto.tmp1StackTopSlotIndex + commentPrefix + ";convertResult2RealBool", i));
-                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + proto.tmp1StackTopSlotIndex + " %" + proto.tmp1StackTopSlotIndex + commentPrefix + ";convertResult2RealBool", i));
+                                convertInt2LuaBoolean(proto, proto.tmp1StackTopSlotIndex, i, commentPrefix, result);
+                                //result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + proto.tmp1StackTopSlotIndex + " %" + proto.tmp1StackTopSlotIndex + commentPrefix + ";convertResult2RealBool", i));
+                                //result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + proto.tmp1StackTopSlotIndex + " %" + proto.tmp1StackTopSlotIndex + commentPrefix + ";convertResult2RealBool", i));
                             }
 
                             result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_RETURN, "return %" + proto.tmp1StackTopSlotIndex + " " + (returnCount + 1) + commentPrefix, i));
