@@ -1079,7 +1079,7 @@ namespace gsharpc
                         var methodParams = operand.Parameters;
                         var paramsCount = methodParams.Count;
                         var hasThis = operand.HasThis;
-                        var isExternalMethod = true;
+                        //var isExternalMethod = true;
                         var hasReturn = operand.ReturnType.FullName != "System.Void";
                         var resultBool2IntValue = false;
                         if (hasReturn && calledMethod.ReturnType.FullName == "System.Boolean")
@@ -1200,7 +1200,7 @@ namespace gsharpc
                         else if (calledTypeName == proto.method.DeclaringType.FullName)
                         {
                             // 调用本类型的方法
-                            isExternalMethod = false;
+                            //isExternalMethod = false;
                             isUserDefineFunc = true;
                             targetFuncName = methodName;
                             //isUserDefinedInTableFunc = false;
@@ -1456,7 +1456,7 @@ namespace gsharpc
                         }
                         else if (calledType.IsDefinition && TranslatorUtils.IsComponentType(calledType as TypeDefinition) && targetFuncName.Length < 1)
                         { //调用工具类
-                            isExternalMethod = false;
+                            //isExternalMethod = false;
                             var protoMethodClassName = proto.method.DeclaringType.FullName;
                             if (calledTypeName.Equals(protoMethodClassName))
                             {  //工具类function调用本工具类function,通过从自己table中获取
@@ -1551,7 +1551,7 @@ namespace gsharpc
                             if (methodParamIndex < methodParams.Count && methodParamIndex >= 0)
                             {
                                 var paramType = methodParams[methodParamIndex].ParameterType;
-                                if ((paramType.FullName == "System.Boolean")&& isExternalMethod)
+                                if (paramType.FullName == "System.Boolean")
                                 {
                                     needConvtToBool = true;
                                 }
@@ -1559,12 +1559,10 @@ namespace gsharpc
 
                             PopFromEvalStackTopSlot(proto, slotIndex, i, result, commentPrefix);
 
-                            // 对于布尔类型，因为.net中布尔类型参数加载的时候用的ldc.i，加载的是整数，所以这里要进行类型转换成bool类型，使用 not not a来转换
+                            // 函数输入输出都为lua型bool,函数内部为int型bool,call函数时将int型bool参数转为lua型bool
                             if (needConvtToBool)
                             {
                                 convertInt2LuaBoolean(proto, slotIndex, i, commentPrefix, result);
-                                //result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + slotIndex + " %" + slotIndex + commentPrefix, i));
-                                //result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NOT, "not %" + slotIndex + " %" + slotIndex + commentPrefix, i));
                             }
 
                         }
@@ -2358,7 +2356,7 @@ namespace gsharpc
 
             var lastLinenumber = 0;
 
-
+            var convertParasBool = false;
             // 不需要支持类型的虚函数调用，只支持静态函数
             foreach (var i in method.Body.Instructions)
             {
@@ -2380,6 +2378,29 @@ namespace gsharpc
                 {
                     commentPrefix += "L" + lastLinenumber + ";";
                 }
+
+                if (!convertParasBool) { 
+                    for(int argLoc = 0; argLoc < method.Parameters.Count; argLoc++)
+                    {
+                        //convert para lua bool to int bool
+                        if(method.Parameters[argLoc].ParameterType.FullName == "System.Boolean")
+                        {
+                            var argSlot = argLoc;
+                            if (proto.method.HasThis)
+                            {
+                                argSlot++;
+                            }
+                            var tempr = new List<UvmInstruction>();
+                            convertLuaBool2intboolean(proto, argSlot, i, commentPrefix+"convert glua bool to int bool;", tempr);
+                            foreach (var uvmInst in tempr)
+                            {
+                                proto.AddInstruction(uvmInst);
+                            }
+                        }
+                    }
+                    convertParasBool = true;
+                }
+
                 var dotnetOpStr = i.OpCode.ToString();
                 // commentPrefix += dotnetOpStr;
                 // 关于.net的evaluation stack在uvm字节码虚拟机中的实现方式
