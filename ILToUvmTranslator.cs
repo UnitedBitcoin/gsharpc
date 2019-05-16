@@ -1057,14 +1057,37 @@ namespace gsharpc
                         MakeSingleArithmeticInstructions(proto, uvmOpName, i, result, commentPrefix, needConvertToBool);
                     }
                     break;
-                case Code.Box:
+                case Code.Box: // Box: 把eval stack栈顶的基本类型数值比如int类型值弹出，装箱成对象类型，重新把引用压栈到eval stack顶部
+                    {
+                        if((i.Operand as TypeReference).FullName == "System.Boolean")
+                        {
+                            var valueSlot = proto.tmp1StackTopSlotIndex;
+                            PopFromEvalStackTopSlot(proto, valueSlot, i, result, commentPrefix);
+                            convertInt2LuaBoolean(proto, valueSlot, i, commentPrefix, result);
+                            PushIntoEvalStackTopSlot(proto, valueSlot, i, result, commentPrefix);
+                        }
+                        else
+                        {
+                            proto.AddNotMappedILInstruction(i);
+                        }
+                    }
+                    break;
                 case Code.Unbox:
                 case Code.Unbox_Any:
-                    {
-                        // Box: 把eval stack栈顶的基本类型数值比如int类型值弹出，装箱成对象类型，重新把引用压栈到eval stack顶部
+                    { 
                         // Unbox: 拆箱
-                        // 转成uvm字节码指令实际什么都不做
-                        proto.AddNotMappedILInstruction(i);
+                        if ((i.Operand as TypeReference).FullName == "System.Boolean")
+                        {
+                            var valueSlot = proto.tmp1StackTopSlotIndex;
+                            PopFromEvalStackTopSlot(proto, valueSlot, i, result, commentPrefix);
+                            convertLuaBool2intboolean(proto, valueSlot, i, commentPrefix, result);
+                            PushIntoEvalStackTopSlot(proto, valueSlot, i, result, commentPrefix);
+                        }
+                        else
+                        {
+                            // 转成uvm字节码指令实际什么都不做
+                            proto.AddNotMappedILInstruction(i);
+                        }
                     }
                     break;
                 case Code.Call:
@@ -1593,7 +1616,11 @@ namespace gsharpc
                                 var tableSlot = argStartSlot;
                                 var keySlot = argStartSlot + 1;
                                 var valueSlot = argStartSlot + 2;
-                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_SETTABLE, "settable %" + tableSlot + " %" + keySlot + " %" + valueSlot + commentPrefix + " array.set", i));
+                                var realKeySlot = proto.tmpMaxStackTopSlotIndex;
+                                //c# array starts from 0 , lua table array starts from 1
+                                //add 1
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_ADD, "add %" + realKeySlot + " %" + keySlot + " const 1" + commentPrefix, i));
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_SETTABLE, "settable %" + tableSlot + " %" + realKeySlot + " %" + valueSlot + commentPrefix + " array.set", i));
                             }
                             else if (targetFuncName == "map.set")
                             {
@@ -1606,7 +1633,11 @@ namespace gsharpc
                             {
                                 var tableSlot = argStartSlot;
                                 var keySlot = argStartSlot + 1;
-                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETTABLE, "gettable %" + resultSlotIndex + " %" + tableSlot + " %" + keySlot + commentPrefix + " array.set", i));
+                                var realKeySlot = proto.tmpMaxStackTopSlotIndex;
+                                //c# array starts from 0 , lua table array starts from 1
+                                //add 1
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_ADD, "add %" + realKeySlot + " %" + keySlot + " const 1" + commentPrefix, i));
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_GETTABLE, "gettable %" + resultSlotIndex + " %" + tableSlot + " %" + realKeySlot + commentPrefix + " array.set", i));
                             }
                             else if (targetFuncName == "map.get")
                             {
@@ -1744,12 +1775,41 @@ namespace gsharpc
                         }
                         if (!useOpcode)
                         {
-                            // 调用tmp2位置的函数，函数调用返回结果会存回tmp2开始的slots
-                            result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_CALL,
-                                "call %" + proto.tmp2StackTopSlotIndex + " " + (paramsCount + 1) + " " + (returnCount + 1) +
-                                commentPrefix, i));
-                            //check zq ???
-                            //result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_MOVE, "move %" + proto.tmp3StackTopSlotIndex + " %" + proto.tmp2StackTopSlotIndex + commentPrefix, i));
+                            //call send_message调用  return 2 results  put in table
+                            if (calledTypeName == typeof(UvmCoreLib.UvmCoreFuncs).FullName && methodName == "send_message")
+                            {
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_CALL,
+                                "call %" + proto.tmp2StackTopSlotIndex + " " + (paramsCount + 1) + " " + (2 + 1) + commentPrefix, i));
+
+                                //返回值2个 result,exitcode  在tmp2StackTopSlotIndex和tmp3StackTopSlotIndex
+                                //将2个返回值一起塞到table array里面
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NEWTABLE,
+                                  "newtable %" + (proto.tmp2StackTopSlotIndex + 2) + " 0 0" + commentPrefix, i));
+
+                                MakeLoadConstInst(proto, i, result, proto.tmp2StackTopSlotIndex+3, 1, commentPrefix);
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_SETTABLE,
+                                  "settable %" + (proto.tmp2StackTopSlotIndex + 2) + " %" + (proto.tmp2StackTopSlotIndex + 3) + " %" + proto.tmp2StackTopSlotIndex + commentPrefix, i));
+
+                                MakeLoadConstInst(proto, i, result, proto.tmp2StackTopSlotIndex + 3, 2, commentPrefix);
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_SETTABLE,
+                                  "settable %" + (proto.tmp2StackTopSlotIndex + 2) + " %" + (proto.tmp2StackTopSlotIndex + 3) + " %" + proto.tmp3StackTopSlotIndex + commentPrefix, i));
+
+                                //结果table放到tmp2StackTopSlotIndex
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_MOVE,
+                                  "move %" + (proto.tmp2StackTopSlotIndex) + " %" + (proto.tmp2StackTopSlotIndex + 2)  + commentPrefix, i));
+
+                            }
+                            else
+                            {
+                                // 调用tmp2位置的函数，函数调用返回结果会存回tmp2开始的slots
+                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_CALL,
+                            "call %" + proto.tmp2StackTopSlotIndex + " " + (paramsCount + 1) + " " + (returnCount + 1) +
+                            commentPrefix, i));
+                                //check zq ???
+                                //result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_MOVE, "move %" + proto.tmp3StackTopSlotIndex + " %" + proto.tmp2StackTopSlotIndex + commentPrefix, i));
+
+                            }
+
 
 
                         }

@@ -489,6 +489,12 @@ namespace UvmCoreLib
             return new object();
         }
 
+        //return table: [result,code]
+        public static UvmArray<object> send_message(string contract_address, string api_name, UvmArray<object> args)
+        {
+            return UvmArray<object>.Create();
+        }
+
 
     }
 }
