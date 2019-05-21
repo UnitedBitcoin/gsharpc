@@ -1775,42 +1775,12 @@ namespace gsharpc
                         }
                         if (!useOpcode)
                         {
-                            //call send_message调用  return 2 results  put in table
-                            if (calledTypeName == typeof(UvmCoreLib.UvmCoreFuncs).FullName && methodName == "send_message")
-                            {
-                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_CALL,
-                                "call %" + proto.tmp2StackTopSlotIndex + " " + (paramsCount + 1) + " " + (2 + 1) + commentPrefix, i));
-
-                                //返回值2个 result,exitcode  在tmp2StackTopSlotIndex和tmp3StackTopSlotIndex
-                                //将2个返回值一起塞到table array里面
-                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_NEWTABLE,
-                                  "newtable %" + (proto.tmp2StackTopSlotIndex + 2) + " 0 0" + commentPrefix, i));
-
-                                MakeLoadConstInst(proto, i, result, proto.tmp2StackTopSlotIndex+3, 1, commentPrefix);
-                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_SETTABLE,
-                                  "settable %" + (proto.tmp2StackTopSlotIndex + 2) + " %" + (proto.tmp2StackTopSlotIndex + 3) + " %" + proto.tmp2StackTopSlotIndex + commentPrefix, i));
-
-                                MakeLoadConstInst(proto, i, result, proto.tmp2StackTopSlotIndex + 3, 2, commentPrefix);
-                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_SETTABLE,
-                                  "settable %" + (proto.tmp2StackTopSlotIndex + 2) + " %" + (proto.tmp2StackTopSlotIndex + 3) + " %" + proto.tmp3StackTopSlotIndex + commentPrefix, i));
-
-                                //结果table放到tmp2StackTopSlotIndex
-                                result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_MOVE,
-                                  "move %" + (proto.tmp2StackTopSlotIndex) + " %" + (proto.tmp2StackTopSlotIndex + 2)  + commentPrefix, i));
-
-                            }
-                            else
-                            {
                                 // 调用tmp2位置的函数，函数调用返回结果会存回tmp2开始的slots
                                 result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_CALL,
                             "call %" + proto.tmp2StackTopSlotIndex + " " + (paramsCount + 1) + " " + (returnCount + 1) +
                             commentPrefix, i));
                                 //check zq ???
                                 //result.Add(proto.MakeInstructionLine(UvmOpCodeEnums.OP_MOVE, "move %" + proto.tmp3StackTopSlotIndex + " %" + proto.tmp2StackTopSlotIndex + commentPrefix, i));
-
-                            }
-
-
 
                         }
                         //else if (hasReturn)
